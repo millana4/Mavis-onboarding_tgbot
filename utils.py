@@ -1,7 +1,9 @@
 import re
 from typing import Dict
 import html
+import logging
 
+logger = logging.getLogger(__name__)
 
 def prepare_telegram_message(markdown_content: str) -> Dict[str, str]:
     """
@@ -17,20 +19,30 @@ def prepare_telegram_message(markdown_content: str) -> Dict[str, str]:
         'parse_mode': 'HTML'
     }
 
-    # 1. Извлекаем медиа
+    # 1. Извлекаем первое медиа (только первое вхождение)
     media_match = re.search(
-        r'!\[.*?]\((.*?\.(?:png|jpg|jpeg|gif|mp4|mov))\)',
+        r'!\[[^\]]*\]\(([^)]+\.(?:png|jpg|jpeg|gif|mp4|mov))\)',
         markdown_content,
         re.IGNORECASE
     )
 
     if media_match:
-        media_url = media_match.group(1)
-        if any(ext in media_url.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif']):
-            result['image_url'] = media_url
+        media_url = media_match.group(1).strip()
+        logger.debug(f"Найдено медиа: {media_url}")
+
+        # Проверяем URL на валидность
+        if media_url.startswith(('http://', 'https://')):
+            if any(ext in media_url.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif']):
+                result['image_url'] = media_url
+                logger.debug(f"Определено как изображение: {media_url}")
+            else:
+                result['video_url'] = media_url
+                logger.debug(f"Определено как видео: {media_url}")
+
+            # Удаляем только первое вхождение медиа из текста
+            markdown_content = markdown_content.replace(media_match.group(0), '', 1).strip()
         else:
-            result['video_url'] = media_url
-        markdown_content = markdown_content.replace(media_match.group(0), '').strip()
+            logger.warning(f"Некорректный URL медиа: {media_url}")
 
     # 2. Преобразуем Markdown в HTML
     text = markdown_content
@@ -84,5 +96,5 @@ def prepare_telegram_message(markdown_content: str) -> Dict[str, str]:
     # Убираем лишние переносы в начале и конце
     text = text.strip('\n')
 
-    result['text'] = text
+    result['text'] = text.strip()
     return result
