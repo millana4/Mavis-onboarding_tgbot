@@ -134,12 +134,12 @@ if __name__ == "__main__":
         menu_rows = await fetch_table()
         pprint.pprint(menu_rows)
 
-        print("ДРУГАЯ ТАБЛИЦА")
-        menu_rows = await fetch_table('iAkg')
-        pprint.pprint(menu_rows)
-
-        print("МЕТАДАННЫЕ ТАБЛИЦ")
-        metadata = await get_metadata()
-        pprint.pprint(metadata)
+        # print("ДРУГАЯ ТАБЛИЦА")
+        # menu_rows = await fetch_table('iAkg')
+        # pprint.pprint(menu_rows)
+        #
+        # print("МЕТАДАННЫЕ ТАБЛИЦ")
+        # metadata = await get_metadata()
+        # pprint.pprint(metadata)
 
     asyncio.run(main())
