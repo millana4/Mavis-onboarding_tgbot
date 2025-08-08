@@ -34,6 +34,9 @@ async def handle_table_menu(table_id: str = '0000', is_back: bool = False) -> Tu
     keyboard = await _create_menu_keyboard(table_data, table_id, is_back)
     logger.info(f"Клавиатура создана, кнопок: {len(keyboard.inline_keyboard)} строк")
 
+    content_part = await _process_content_part(table_data)
+    if 'parse_mode' not in content_part:
+        content_part['parse_mode'] = 'HTML'  # Добавляем parse_mode если его нет
     return content_part, keyboard
 
 
@@ -130,7 +133,10 @@ async def handle_content_button(table_id: str, row_id: str) -> Tuple[Dict, Optio
 
     # Создаем клавиатуру "Назад"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"menu:{table_id}")
+        InlineKeyboardButton(
+            text="⬅️ Назад",
+            callback_data=f"back:{table_id}:{row_id}"
+        )
     ]])
     logger.info("Создана клавиатура 'Назад'")
 

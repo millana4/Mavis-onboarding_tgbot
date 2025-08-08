@@ -7,7 +7,8 @@ logger = logging.getLogger(__name__)
 
 def prepare_telegram_message(markdown_content: str) -> Dict[str, str]:
     """
-    Подготавливает контент для отправки в Telegram с HTML разметкой
+    Подготавливает контент для отправки в Telegram с HTML разметкой.
+    Обрабатывает только первое изображение, остальные медиа-файлы игнорируются.
     """
     if not markdown_content:
         return {'text': ''}
@@ -35,9 +36,6 @@ def prepare_telegram_message(markdown_content: str) -> Dict[str, str]:
             if any(ext in media_url.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif']):
                 result['image_url'] = media_url
                 logger.debug(f"Определено как изображение: {media_url}")
-            else:
-                result['video_url'] = media_url
-                logger.debug(f"Определено как видео: {media_url}")
 
             # Удаляем только первое вхождение медиа из текста
             markdown_content = markdown_content.replace(media_match.group(0), '', 1).strip()

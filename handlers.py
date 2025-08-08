@@ -44,7 +44,6 @@ async def send_welcome(message: types.Message):
         await message.answer("Произошла ошибка, попробуйте позже")
 
 
-
 # Хендлер для кнопок меню
 @router.callback_query(lambda c: c.data.startswith('menu:'))
 async def process_menu_callback(callback_query: types.CallbackQuery):
@@ -65,7 +64,7 @@ async def process_menu_callback(callback_query: types.CallbackQuery):
                 media=types.InputMediaPhoto(
                     media=content['image_url'],
                     caption=content['text'],
-                    parse_mode="Markdown"
+                    parse_mode="HTML"
                 ),
                 reply_markup=keyboard
             )
@@ -74,7 +73,7 @@ async def process_menu_callback(callback_query: types.CallbackQuery):
             await callback_query.message.edit_text(
                 text=content['text'],
                 reply_markup=keyboard,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             logger.debug("Обновлен текстовый контент")
 
@@ -89,6 +88,12 @@ async def process_menu_callback(callback_query: types.CallbackQuery):
 @router.callback_query(lambda c: c.data.startswith('content:'))
 async def process_content_callback(callback_query: types.CallbackQuery):
     """Обработчик нажатия на кнопки контента"""
+    try:
+        # Удаляем сообщение с меню
+        await callback_query.message.delete()
+    except Exception as e:
+        logger.warning(f"Не удалось удалить сообщение: {str(e)}")
+
     _, table_id, row_id = callback_query.data.split(':')
     logger.info(
         f"Обработка callback контента table_id={table_id}, row_id={row_id} от пользователя {callback_query.from_user.id}")
@@ -102,44 +107,20 @@ async def process_content_callback(callback_query: types.CallbackQuery):
 
     try:
         # Определяем тип контента и отправляем соответствующее сообщение
-        if content.get('document'):
-            # Отправка документа с проверкой caption
-            caption = content.get('text', '')
-            await callback_query.message.answer_document(
-                document=content['document'],
-                caption=caption[:1024] if caption else None,  # Ограничение длины caption в Telegram
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-            logger.debug(f"Отправлен документ: {content['document']}, caption length: {len(caption)}")
-
-        elif content.get('image_url'):
-            # Проверяем наличие текста для caption
-            if not content.get('text'):
-                logger.warning("Отправка фото без текста caption")
-
+        if content.get('image_url'):
             await callback_query.message.answer_photo(
                 photo=content['image_url'],
-                caption=content.get('text', '')[:1024],  # Ограничение длины
+                caption=content.get('text', ''),
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
-            logger.debug(f"Отправлено фото: {content['image_url']}")
-
         else:
-            # Проверяем наличие текста
-            if not content.get('text'):
-                logger.error("Попытка отправить пустое текстовое сообщение")
-                await callback_query.answer("Ошибка: пустой текст", show_alert=True)
-                return
-
             await callback_query.message.answer(
                 text=content['text'],
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
-            logger.debug(f"Отправлен текст, длина: {len(content['text'])}")
-
+        await callback_query.answer()
         # Подтверждаем обработку callback
         await callback_query.answer()
 
@@ -149,13 +130,59 @@ async def process_content_callback(callback_query: types.CallbackQuery):
 
 
 # Хендлер кнопки "Назад"
-@router.callback_query(lambda c: c.data == 'back')
+@router.callback_query(lambda c: c.data.startswith('back:'))
 async def process_back_callback(callback_query: types.CallbackQuery):
-    """Обработчик кнопки 'Назад'"""
-    logger.info(f"Обработка кнопки 'Назад' от пользователя {callback_query.from_user.id}")
+    """
+    Обработчик кнопки 'Назад' для Button_content
+    Содержание контента постит в чат и загружает меню предыдущего уровня.
+    """
     try:
-        await process_menu_callback(callback_query)
+        _, table_id, row_id = callback_query.data.split(':')
+
+        # Получаем контент кнопки
+        from table_handlers import handle_content_button, handle_table_menu
+        content, _ = await handle_content_button(table_id, row_id)
+
+        # Отправляем его как обычное сообщение в чат
+        if content.get('image_url'):
+            await callback_query.message.bot.send_photo(
+                chat_id=callback_query.message.chat.id,
+                photo=content['image_url'],
+                caption=content.get('text', ''),
+                parse_mode="HTML"
+            )
+        else:
+            await callback_query.message.bot.send_message(
+                chat_id=callback_query.message.chat.id,
+                text=content.get('text', ''),
+                parse_mode="HTML"
+            )
+
+        # Удаляем сообщение с кнопкой "Назад"
+        await callback_query.message.delete()
+
+        # Загружаем меню
+        menu_content, menu_keyboard = await handle_table_menu(table_id)
+
+        # Отправляем меню
+        if menu_content.get('image_url'):
+            await callback_query.message.bot.send_photo(
+                chat_id=callback_query.message.chat.id,
+                photo=menu_content['image_url'],
+                caption=menu_content.get('text', ''),
+                reply_markup=menu_keyboard,
+                parse_mode="HTML"
+            )
+        else:
+            await callback_query.message.bot.send_message(
+                chat_id=callback_query.message.chat.id,
+                text=menu_content.get('text', ''),
+                reply_markup=menu_keyboard,
+                parse_mode="HTML"
+            )
+
+        await callback_query.answer()
+
     except Exception as e:
-        logger.error(f"Ошибка при обработке кнопки 'Назад': {str(e)}")
+        logger.error(f"Ошибка при обработке кнопки 'Назад': {str(e)}", exc_info=True)
         await callback_query.answer("Произошла ошибка", show_alert=True)
-        raise
