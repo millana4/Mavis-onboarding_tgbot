@@ -1,11 +1,10 @@
 import asyncio
 import pprint
 import time
-from importlib.metadata import metadata
 
 import aiohttp
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 
 from config import Config
 

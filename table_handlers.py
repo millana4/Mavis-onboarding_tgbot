@@ -1,8 +1,7 @@
 from typing import List, Dict, Optional, Tuple
 import re
 import logging
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaDocument
-from aiogram.utils.markdown import text, bold, italic
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from seatable_api import fetch_table
 from utils import prepare_telegram_message
 
@@ -128,7 +127,7 @@ async def handle_content_button(table_id: str, row_id: str) -> Tuple[Dict, Optio
 
     # Добавляем файл если есть
     if row.get('Attachment'):
-        content['document'] = row['Attachment'][0]['url']
+        content['document'] = row['Attachment']
         logger.info(f"Добавлен файл: {content['document']}")
 
     # Создаем клавиатуру "Назад"
