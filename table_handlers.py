@@ -2,20 +2,21 @@ from typing import List, Dict, Optional, Tuple
 import re
 import logging
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+from config import Config
 from seatable_api import fetch_table
 from utils import prepare_telegram_message
 
 logger = logging.getLogger(__name__)
 
 
-async def handle_table_menu(table_id: str = '0000', is_back: bool = False) -> Tuple[Dict, InlineKeyboardMarkup]:
+async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID) -> Tuple[Dict, InlineKeyboardMarkup]:
     """
     Обрабатывает данные таблицы и создает Telegram-сообщение с меню
     :param table_id: ID таблицы (по умолчанию '0000' - главное меню)
-    :param is_back: Флаг возврата из подменю (для кнопки "Назад")
     :return: Кортеж (контент, клавиатура)
     """
-    logger.info(f"Начало обработки меню для table_id={table_id}, is_back={is_back}")
+    logger.info(f"Начало обработки меню для table_id={table_id}")
 
     # Получаем данные таблицы
     table_data = await fetch_table(table_id)
@@ -30,7 +31,7 @@ async def handle_table_menu(table_id: str = '0000', is_back: bool = False) -> Tu
     logger.info(f"Контентная часть подготовлена: {bool(content_part.get('text'))}")
 
     # 2. Создаем инлайн-кнопки
-    keyboard = await _create_menu_keyboard(table_data, table_id, is_back)
+    keyboard = await _create_menu_keyboard(table_data, table_id)
     logger.info(f"Клавиатура создана, кнопок: {len(keyboard.inline_keyboard)} строк")
 
     content_part = await _process_content_part(table_data)
@@ -52,12 +53,9 @@ async def _process_content_part(table_data: List[Dict]) -> Dict:
     return {"text": ""}
 
 
-async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str, is_back: bool = False) -> InlineKeyboardMarkup:
+async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str) -> InlineKeyboardMarkup:
     """Создает инлайн-клавиатуру с кнопками"""
-    logger.info(f"Создание клавиатуры для table_id={current_table_id}")
-
     inline_keyboard = []
-    button_types = {'submenu': 0, 'external': 0, 'content': 0}
 
     for row in table_data:
         name = row.get('Name')
@@ -70,30 +68,25 @@ async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str, i
                 text=name,
                 callback_data=f"menu:{submenu_id}"
             )])
-            button_types['submenu'] += 1
         elif row.get('External_link'):
             inline_keyboard.append([InlineKeyboardButton(
                 text=name,
                 url=row['External_link']
             )])
-            button_types['external'] += 1
         elif row.get('Button_content'):
             inline_keyboard.append([InlineKeyboardButton(
                 text=name,
                 callback_data=f"content:{current_table_id}:{row['_id']}"
             )])
-            button_types['content'] += 1
 
     # Добавляем кнопку "Назад" только если это не главное меню
-    if current_table_id != '0000':
+    if current_table_id != Config.SEATABLE_MAIN_MENU_ID:
         inline_keyboard.append([InlineKeyboardButton(
             text="⬅️ Назад",
-            callback_data=f"menu:{current_table_id.split(':')[0]}" if ':' in current_table_id else "menu:0000"
+            callback_data="back"
         )])
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
-    logger.info(f"Создана клавиатура: {button_types}")
-    return keyboard
+    return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
 async def handle_content_button(table_id: str, row_id: str) -> Tuple[Dict, Optional[InlineKeyboardMarkup]]:
@@ -121,16 +114,11 @@ async def handle_content_button(table_id: str, row_id: str) -> Tuple[Dict, Optio
         content.update(prepare_telegram_message(row['Button_content']))
         logger.info("Контент подготовлен")
 
-    # Добавляем файл если есть
-    if row.get('Attachment'):
-        content['document'] = row['Attachment']
-        logger.info(f"Добавлен файл: {content['document']}")
-
-    # Создаем клавиатуру "Назад"
+    # Создаем клавиатуру "Назад" (теперь без параметров)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
             text="⬅️ Назад",
-            callback_data=f"back:{table_id}:{row_id}"
+            callback_data="back"  # Убрали параметры
         )
     ]])
     logger.info("Создана клавиатура 'Назад'")

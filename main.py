@@ -7,23 +7,25 @@ import custom_logging
 import handlers
 from config import Config
 
-
 # Инициализация логирования
 custom_logging.setup_logging()
 logger = logging.getLogger(__name__)
 
-logger.info("Настройка логирования завершена")
-
 async def main():
+    logger.info("Запуск бота...")
 
-    # 2. Инициализация бота и диспетчера
+    # Инициализация хранилища MemoryStorage
+    storage = MemoryStorage()
+    logger.info("Используется MemoryStorage")
+
+    # Инициализация бота и диспетчера
     bot = Bot(token=Config.BOT_TOKEN)
-    dp = Dispatcher(storage=MemoryStorage())
+    dp = Dispatcher(storage=storage)
 
-    # 3. Регистрация хендлеров
+    # Регистрация роутеров
     dp.include_router(handlers.router)
 
-    # 4. Запуск бота (современный асинхронный способ)
+    # Запуск бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
