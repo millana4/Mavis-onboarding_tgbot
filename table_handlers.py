@@ -52,7 +52,7 @@ async def _process_content_part(table_data: List[Dict]) -> Dict:
     return {"text": ""}
 
 
-async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str, is_back: bool) -> InlineKeyboardMarkup:
+async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str, is_back: bool = False) -> InlineKeyboardMarkup:
     """Создает инлайн-клавиатуру с кнопками"""
     logger.info(f"Создание клавиатуры для table_id={current_table_id}")
 
@@ -64,12 +64,11 @@ async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str, i
         if not name or name == 'Info':
             continue
 
-        # Создаем кнопку и добавляем в отдельный ряд
         if row.get('Submenu_link'):
             submenu_id = re.search(r'tid=([^&]+)', row['Submenu_link']).group(1)
             inline_keyboard.append([InlineKeyboardButton(
                 text=name,
-                callback_data=f"submenu:{submenu_id}"
+                callback_data=f"menu:{submenu_id}"
             )])
             button_types['submenu'] += 1
         elif row.get('External_link'):
@@ -78,25 +77,22 @@ async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str, i
                 url=row['External_link']
             )])
             button_types['external'] += 1
-        else:
+        elif row.get('Button_content'):
             inline_keyboard.append([InlineKeyboardButton(
                 text=name,
                 callback_data=f"content:{current_table_id}:{row['_id']}"
             )])
             button_types['content'] += 1
 
-    # Добавляем кнопку "Назад" в отдельный ряд
-    if current_table_id != '0000' or is_back:
+    # Добавляем кнопку "Назад" только если это не главное меню
+    if current_table_id != '0000':
         inline_keyboard.append([InlineKeyboardButton(
             text="⬅️ Назад",
-            callback_data="back"
+            callback_data=f"menu:{current_table_id.split(':')[0]}" if ':' in current_table_id else "menu:0000"
         )])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
-
-    logger.info(f"Создана клавиатура: {button_types['submenu']} подменю, "
-                f"{button_types['external']} внешних, {button_types['content']} контентных кнопок")
-
+    logger.info(f"Создана клавиатура: {button_types}")
     return keyboard
 
 

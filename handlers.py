@@ -55,29 +55,27 @@ async def process_menu_callback(callback_query: types.CallbackQuery):
 
     content, keyboard = await handle_table_menu(table_id)
 
-    if not content or not keyboard:
-        logger.error(f"Не удалось получить контент или клавиатуру для table_id={table_id}")
+    if not keyboard:
+        logger.error(f"Не удалось получить клавиатуру для table_id={table_id}")
         await callback_query.answer("Ошибка загрузки меню", show_alert=True)
         return
 
     try:
         if content.get('image_url'):
-            await callback_query.message.edit_media(
-                media=types.InputMediaPhoto(
-                    media=content['image_url'],
-                    caption=content['text'],
-                    parse_mode="HTML"
-                ),
-                reply_markup=keyboard
+            media = types.InputMediaPhoto(
+                media=content['image_url'],
+                caption=content.get('text', ''),
+                parse_mode="HTML"
             )
-            logger.debug(f"Обновлено медиа с изображением: {content['image_url']}")
-        else:
+            await callback_query.message.edit_media(media=media, reply_markup=keyboard)
+        elif content.get('text'):
             await callback_query.message.edit_text(
                 text=content['text'],
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
-            logger.debug("Обновлен текстовый контент")
+        else:
+            await callback_query.message.edit_reply_markup(reply_markup=keyboard)
 
         await callback_query.answer()
     except Exception as e:
@@ -137,57 +135,91 @@ async def process_content_callback(callback_query: types.CallbackQuery):
 # Хендлер кнопки "Назад"
 @router.callback_query(lambda c: c.data.startswith('back:'))
 async def process_back_callback(callback_query: types.CallbackQuery):
-    """
-    Обработчик кнопки 'Назад' для Button_content
-    Содержание контента постит в чат и загружает меню предыдущего уровня.
-    """
+    """Обработчик кнопки 'Назад'"""
     try:
         _, table_id, row_id = callback_query.data.split(':')
+        logger.info(f"Обработка кнопки Назад для table_id={table_id}, row_id={row_id}")
 
         # Получаем контент кнопки
-        from table_handlers import handle_content_button, handle_table_menu
         content, _ = await handle_content_button(table_id, row_id)
 
-        # Отправляем его как обычное сообщение в чат
+        # Отправляем контент в чат
         if content.get('image_url'):
-            await callback_query.message.bot.send_photo(
-                chat_id=callback_query.message.chat.id,
+            await callback_query.message.answer_photo(
                 photo=content['image_url'],
                 caption=content.get('text', ''),
                 parse_mode="HTML"
             )
-        else:
-            await callback_query.message.bot.send_message(
-                chat_id=callback_query.message.chat.id,
-                text=content.get('text', ''),
+        elif content.get('text'):
+            await callback_query.message.answer(
+                text=content['text'],
                 parse_mode="HTML"
             )
 
         # Удаляем сообщение с кнопкой "Назад"
         await callback_query.message.delete()
 
-        # Загружаем меню
-        menu_content, menu_keyboard = await handle_table_menu(table_id)
+        # Загружаем родительское меню
+        parent_table_id = table_id.split(':')[0] if ':' in table_id else '0000'
+        menu_content, menu_keyboard = await handle_table_menu(parent_table_id)
 
-        # Отправляем меню
+        # Отправляем родительское меню
         if menu_content.get('image_url'):
-            await callback_query.message.bot.send_photo(
-                chat_id=callback_query.message.chat.id,
+            await callback_query.message.answer_photo(
                 photo=menu_content['image_url'],
                 caption=menu_content.get('text', ''),
                 reply_markup=menu_keyboard,
                 parse_mode="HTML"
             )
-        else:
-            await callback_query.message.bot.send_message(
-                chat_id=callback_query.message.chat.id,
-                text=menu_content.get('text', ''),
+        elif menu_content.get('text'):
+            await callback_query.message.answer(
+                text=menu_content['text'],
                 reply_markup=menu_keyboard,
                 parse_mode="HTML"
             )
+        else:
+            await callback_query.message.answer(
+                text="Меню",
+                reply_markup=menu_keyboard
+            )
 
         await callback_query.answer()
-
     except Exception as e:
         logger.error(f"Ошибка при обработке кнопки 'Назад': {str(e)}", exc_info=True)
+        await callback_query.answer("Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith('submenu:'))
+async def process_submenu_callback(callback_query: types.CallbackQuery):
+    """Обработчик нажатия на кнопки подменю"""
+    table_id = callback_query.data.split(':')[1]
+    logger.info(f"Обработка callback подменю для table_id={table_id}")
+
+    content, keyboard = await handle_table_menu(table_id)
+
+    if not keyboard:
+        logger.error(f"Не удалось получить клавиатуру для table_id={table_id}")
+        await callback_query.answer("Ошибка загрузки меню", show_alert=True)
+        return
+
+    try:
+        if content.get('image_url'):
+            media = types.InputMediaPhoto(
+                media=content['image_url'],
+                caption=content.get('text', ''),
+                parse_mode="HTML"
+            )
+            await callback_query.message.edit_media(media=media, reply_markup=keyboard)
+        elif content.get('text'):
+            await callback_query.message.edit_text(
+                text=content['text'],
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        else:
+            await callback_query.message.edit_reply_markup(reply_markup=keyboard)
+
+        await callback_query.answer()
+    except Exception as e:
+        logger.error(f"Ошибка при обработке callback подменю: {str(e)}")
         await callback_query.answer("Произошла ошибка", show_alert=True)
