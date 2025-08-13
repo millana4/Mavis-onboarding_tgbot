@@ -130,7 +130,7 @@ if __name__ == "__main__":
         # pprint.pprint(token_data)
 
         print("ТАБЛИЦА МЕНЮ")
-        menu_rows = await fetch_table()
+        menu_rows = await fetch_table('yoeh')
         pprint.pprint(menu_rows)
 
         # print("ДРУГАЯ ТАБЛИЦА")

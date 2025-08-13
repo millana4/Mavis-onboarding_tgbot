@@ -63,49 +63,56 @@ async def send_welcome(message: types.Message, state: FSMContext):
 # Хендлер для кнопок меню
 @router.callback_query(lambda c: c.data.startswith('menu:'))
 async def process_menu_callback(callback_query: types.CallbackQuery, state: FSMContext):
-    """Обработчик навигации по меню с поддержкой истории"""
+    """Обработчик перехода между меню"""
     try:
-        # Получаем текущее состояние
+        # Получаем и обновляем состояние
         data = await state.get_data()
         navigation_history = data.get('navigation_history', [Config.SEATABLE_MAIN_MENU_ID])
-
-        # Получаем новый table_id
         new_table_id = callback_query.data.split(':')[1]
 
-        # Обновляем историю
         navigation_history.append(new_table_id)
         await state.update_data(
             current_menu=new_table_id,
             navigation_history=navigation_history
         )
 
-        logger.debug(f"Navigation history: {navigation_history}")
-
-        # Получаем контент и клавиатуру
+        # Получаем данные меню
         content, keyboard = await handle_table_menu(new_table_id)
 
-        if not keyboard:
-            await callback_query.answer("Меню не найдено", show_alert=True)
-            return
+        # Удаляем предыдущее сообщение и создаем новое
+        try:
+            await callback_query.message.delete()
+        except:
+            pass
 
-        # Обновляем сообщение
-        if content.get('image_url'):
-            await callback_query.message.edit_media(
-                media=types.InputMediaPhoto(
-                    media=content['image_url'],
-                    caption=content.get('text', ''),
-                    parse_mode="HTML"
-                ),
-                reply_markup=keyboard
+        # Отправляем новое сообщение с учетом типа контента
+        kwargs = {
+            'reply_markup': keyboard,
+            'parse_mode': 'HTML'
+        }
+
+        if content:
+            if content.get('image_url'):
+                await callback_query.message.answer_photo(
+                    photo=content['image_url'],
+                    caption=content.get('text', ' '),
+                    **kwargs
+                )
+            elif content.get('text'):
+                await callback_query.message.answer(
+                    text=content['text'],
+                    **kwargs
+                )
+            else:
+                await callback_query.message.answer(
+                    text="Меню",
+                    **kwargs
+                )
+        elif keyboard:
+            await callback_query.message.answer(
+                text="Меню",
+                **kwargs
             )
-        elif content.get('text'):
-            await callback_query.message.edit_text(
-                text=content['text'],
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-        else:
-            await callback_query.message.edit_reply_markup(reply_markup=keyboard)
 
         await callback_query.answer()
 
@@ -116,52 +123,51 @@ async def process_menu_callback(callback_query: types.CallbackQuery, state: FSMC
 
 @router.callback_query(lambda c: c.data.startswith('content:'))
 async def process_content_callback(callback_query: types.CallbackQuery, state: FSMContext):
-    """Обработчик нажатия на кнопки контента"""
+    """Обработчик контентных кнопок (постит в чат)"""
     try:
-        await callback_query.message.delete()
-    except Exception as e:
-        logger.warning(f"Не удалось удалить сообщение: {str(e)}")
+        # Получаем параметры контента
+        _, table_id, row_id = callback_query.data.split(':')
 
-    _, table_id, row_id = callback_query.data.split(':')
-    user_id = callback_query.from_user.id
-    logger.info(f"Обработка контента table_id={table_id}, row_id={row_id} для пользователя {user_id}")
-
-    try:
-        # Обновляем историю навигации
+        # Обновляем историю
         data = await state.get_data()
-        navigation_history = data.get('navigation_history', [Config.SEATABLE_MAIN_MENU_ID])
+        navigation_history = data.get('navigation_history', [])
+        navigation_history.append(f"content:{table_id}:{row_id}")
+        await state.update_data(navigation_history=navigation_history)
 
-        # Добавляем текущий контент в историю
-        content_key = f"content:{table_id}:{row_id}"
-        navigation_history.append(content_key)
-        await state.update_data(
-            current_menu=content_key,
-            navigation_history=navigation_history
-        )
-
-        # Получаем данные строки
+        # Получаем данные контента
         table_data = await fetch_table(table_id)
         row = next((r for r in table_data if r['_id'] == row_id), None)
 
-        # Обработка вложения, если оно есть
-        if row and row.get('Attachment'):
-            file_url = row['Attachment']
-            logger.debug(f"Попытка скачать: {file_url}")
-            await download_and_send_file(file_url=file_url, callback_query=callback_query)
+        if not row:
+            await callback_query.answer("Контент не найден", show_alert=True)
+            return
 
-        # Отправка основного контента
+        # Удаляем предыдущее меню
+        try:
+            await callback_query.message.delete()
+        except:
+            pass
+
+        # Отправляем вложение (если есть)
+        if row.get('Attachment'):
+            await download_and_send_file(
+                file_url=row['Attachment'],
+                callback_query=callback_query
+            )
+
+        # Отправляем основной контент
         content, keyboard = await handle_content_button(table_id, row_id)
 
         if content.get('image_url'):
             await callback_query.message.answer_photo(
                 photo=content['image_url'],
-                caption=content.get('text', ''),
+                caption=content.get('text', "Информация"),  # Гарантированный текст
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
         else:
             await callback_query.message.answer(
-                text=content['text'],
+                text=content.get('text', "Информация"),
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
@@ -169,83 +175,77 @@ async def process_content_callback(callback_query: types.CallbackQuery, state: F
         await callback_query.answer()
 
     except Exception as e:
-        logger.error(f"Ошибка обработки контента: {str(e)}", exc_info=True)
-        await callback_query.answer("Произошла ошибка", show_alert=True)
-
+        logger.error(f"Content error: {str(e)}", exc_info=True)
+        await callback_query.answer("Ошибка загрузки контента", show_alert=True)
 
 
 # Хендлер кнопки "Назад"
 @router.callback_query(lambda c: c.data == 'back')
 async def process_back_callback(callback_query: types.CallbackQuery, state: FSMContext):
-    """Обработчик кнопки 'Назад' с поддержкой истории"""
+    """Обработчик кнопки 'Назад'"""
     try:
-        # Получаем текущее состояние
         data = await state.get_data()
-        navigation_history = data.get('navigation_history', [Config.SEATABLE_MAIN_MENU_ID])
+        navigation_history = data.get('navigation_history', [])
 
         if len(navigation_history) <= 1:
             await callback_query.answer("Вы в главном меню")
             return
 
-        # Удаляем текущее меню из истории
-        navigation_history.pop()
-        previous_key = navigation_history[-1]
-
-        # Обновляем состояние
+        # Получаем предыдущий экран
+        previous_key = navigation_history[-2]
         await state.update_data(
             current_menu=previous_key,
-            navigation_history=navigation_history
+            navigation_history=navigation_history[:-1]
         )
 
-        logger.debug(f"Back to: {previous_key}, History: {navigation_history}")
+        # Удаляем текущее сообщение
+        try:
+            await callback_query.message.delete()
+        except:
+            pass
 
-        # Определяем тип предыдущей страницы (меню или контент)
         if previous_key.startswith('content:'):
-            # Если возвращаемся к контенту
+            # Возврат к контенту (постим в чат)
             _, table_id, row_id = previous_key.split(':')
             content, keyboard = await handle_content_button(table_id, row_id)
 
             if content.get('image_url'):
-                await callback_query.message.edit_media(
-                    media=types.InputMediaPhoto(
-                        media=content['image_url'],
-                        caption=content.get('text', ''),
-                        parse_mode="HTML"
-                    ),
-                    reply_markup=keyboard
+                await callback_query.message.answer_photo(
+                    photo=content['image_url'],
+                    caption=content.get('text', "Информация"),
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
                 )
             else:
-                await callback_query.message.edit_text(
-                    text=content['text'],
+                await callback_query.message.answer(
+                    text=content.get('text', "Информация"),
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
         else:
-            # Если возвращаемся к меню
+            # Возврат к меню
             content, keyboard = await handle_table_menu(previous_key)
 
-            if content.get('image_url'):
-                await callback_query.message.edit_media(
-                    media=types.InputMediaPhoto(
-                        media=content['image_url'],
-                        caption=content.get('text', ''),
-                        parse_mode="HTML"
-                    ),
-                    reply_markup=keyboard
-                )
-            elif content.get('text'):
-                await callback_query.message.edit_text(
-                    text=content['text'],
+            menu_text = content.get('text', "Меню") if content else "Меню"
+
+            if content and content.get('image_url'):
+                await callback_query.message.answer_photo(
+                    photo=content['image_url'],
+                    caption=menu_text,
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
             else:
-                await callback_query.message.edit_reply_markup(reply_markup=keyboard)
+                await callback_query.message.answer(
+                    text=menu_text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
 
         await callback_query.answer()
 
     except Exception as e:
-        logger.error(f"Back navigation error: {str(e)}", exc_info=True)
+        logger.error(f"Back error: {str(e)}", exc_info=True)
         await callback_query.answer("Ошибка возврата", show_alert=True)
 
 
