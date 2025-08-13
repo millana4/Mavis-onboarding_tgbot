@@ -6,7 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 from config import Config
 from table_handlers import handle_table_menu, handle_content_button
 from seatable_api import fetch_table
-from utils import download_and_send_file
+from utils import download_and_send_file, prepare_telegram_message
 import logging
 
 # Создаем роутер
@@ -191,6 +191,18 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
             await callback_query.answer("Вы в главном меню")
             return
 
+        # Получаем текущий контент (если мы на content)
+        current_key = navigation_history[-1]
+        button_content = None
+        if current_key.startswith('content:'):
+            _, current_table_id, current_row_id = current_key.split(':')
+
+            # Получаем конкретный Button_content текущей строки
+            current_table_data = await fetch_table(current_table_id)
+            current_row = next((r for r in current_table_data if r['_id'] == current_row_id), None)
+            if current_row and current_row.get('Button_content'):
+                button_content = prepare_telegram_message(current_row['Button_content'])
+
         # Получаем предыдущий экран
         previous_key = navigation_history[-2]
         await state.update_data(
@@ -204,8 +216,23 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
         except:
             pass
 
+        # Если был контент - постим его Button_content перед возвратом
+        if button_content:
+            if button_content.get('image_url'):
+                await callback_query.message.answer_photo(
+                    photo=button_content['image_url'],
+                    caption=button_content.get('text', ' '),
+                    parse_mode="HTML"
+                )
+            elif button_content.get('text'):
+                await callback_query.message.answer(
+                    text=button_content['text'],
+                    parse_mode="HTML"
+                )
+
+        # Возвращаемся к предыдущему экрану
         if previous_key.startswith('content:'):
-            # Возврат к контенту (постим в чат)
+            # Возврат к контенту
             _, table_id, row_id = previous_key.split(':')
             content, keyboard = await handle_content_button(table_id, row_id)
 
@@ -247,40 +274,3 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
     except Exception as e:
         logger.error(f"Back error: {str(e)}", exc_info=True)
         await callback_query.answer("Ошибка возврата", show_alert=True)
-
-
-
-@router.callback_query(lambda c: c.data.startswith('submenu:'))
-async def process_submenu_callback(callback_query: types.CallbackQuery):
-    """Обработчик нажатия на кнопки подменю"""
-    table_id = callback_query.data.split(':')[1]
-    logger.info(f"Обработка callback подменю для table_id={table_id}")
-
-    content, keyboard = await handle_table_menu(table_id)
-
-    if not keyboard:
-        logger.error(f"Не удалось получить клавиатуру для table_id={table_id}")
-        await callback_query.answer("Ошибка загрузки меню", show_alert=True)
-        return
-
-    try:
-        if content.get('image_url'):
-            media = types.InputMediaPhoto(
-                media=content['image_url'],
-                caption=content.get('text', ''),
-                parse_mode="HTML"
-            )
-            await callback_query.message.edit_media(media=media, reply_markup=keyboard)
-        elif content.get('text'):
-            await callback_query.message.edit_text(
-                text=content['text'],
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-        else:
-            await callback_query.message.edit_reply_markup(reply_markup=keyboard)
-
-        await callback_query.answer()
-    except Exception as e:
-        logger.error(f"Ошибка при обработке callback подменю: {str(e)}")
-        await callback_query.answer("Произошла ошибка", show_alert=True)

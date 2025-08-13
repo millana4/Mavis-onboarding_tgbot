@@ -129,8 +129,8 @@ if __name__ == "__main__":
         # token_data = await get_base_token()
         # pprint.pprint(token_data)
 
-        print("ТАБЛИЦА МЕНЮ")
-        menu_rows = await fetch_table('yoeh')
+        print("ТАБЛИЦА")
+        menu_rows = await fetch_table('1WOI')
         pprint.pprint(menu_rows)
 
         # print("ДРУГАЯ ТАБЛИЦА")
