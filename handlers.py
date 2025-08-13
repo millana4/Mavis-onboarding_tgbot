@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import Config
+from form_handler import finish_form, ask_next_question
 from table_handlers import handle_table_menu, handle_content_button
 from seatable_api import fetch_table
 from utils import download_and_send_file, prepare_telegram_message
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class Navigation(StatesGroup):
     current_menu = State()  # Хранит текущее меню и историю для каждого пользователя
+    form_data = State()  # Состояние для формы
 
 # Хендлер команды /start
 @router.message(Command("start"))
@@ -28,7 +30,7 @@ async def send_welcome(message: types.Message, state: FSMContext):
             navigation_history=[Config.SEATABLE_MAIN_MENU_ID]
         )
 
-        content, keyboard = await handle_table_menu(Config.SEATABLE_MAIN_MENU_ID)
+        content, keyboard = await handle_table_menu(Config.SEATABLE_MAIN_MENU_ID, message=message, state=state)
 
         kwargs = {
             'reply_markup': keyboard,
@@ -70,14 +72,18 @@ async def process_menu_callback(callback_query: types.CallbackQuery, state: FSMC
         navigation_history = data.get('navigation_history', [Config.SEATABLE_MAIN_MENU_ID])
         new_table_id = callback_query.data.split(':')[1]
 
-        navigation_history.append(new_table_id)
+        navigation_history.append(new_table_id, )
         await state.update_data(
             current_menu=new_table_id,
             navigation_history=navigation_history
         )
 
         # Получаем данные меню
-        content, keyboard = await handle_table_menu(new_table_id)
+        content, keyboard = await handle_table_menu(
+            new_table_id,
+            message=callback_query.message,
+            state=state
+        )
 
         # Удаляем предыдущее сообщение и создаем новое
         try:
@@ -274,3 +280,85 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
     except Exception as e:
         logger.error(f"Back error: {str(e)}", exc_info=True)
         await callback_query.answer("Ошибка возврата", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith('form_opt:'))
+async def handle_form_option(callback: types.CallbackQuery, state: FSMContext):
+    """Обрабатывает выбор варианта в форме"""
+    data = await state.get_data()
+    if 'form_data' not in data:
+        await callback.answer()
+        return
+
+    # Получаем выбранный вариант
+    answer = callback.data.split(':', 1)[1]
+
+    # Обновляем состояние формы
+    form_data = data['form_data']
+    form_data['answers'].append(answer)
+    form_data['current_question'] += 1
+
+    await state.update_data(form_data=form_data)
+    await callback.message.delete()
+
+    # Переходим к следующему вопросу или завершаем
+    if form_data['current_question'] >= len(form_data['questions']):
+        await finish_form(callback.message, form_data)
+    else:
+        await ask_next_question(callback.message, form_data)
+
+
+@router.message()
+async def handle_text_answer(message: types.Message, state: FSMContext):
+    """Обрабатывает текстовые ответы в форме"""
+    data = await state.get_data()
+    if 'form_data' not in data:
+        return
+
+    form_data = data['form_data']
+    current_question = form_data['current_question']
+
+    # Проверяем, ожидаем ли мы текстовый ответ
+    if current_question >= len(form_data['questions']):
+        return
+
+    if not form_data['questions'][current_question].get('Free_input', True):
+        return
+
+    # Обновляем и сохраняем состояние формы
+    form_data['answers'].append(message.text)
+    form_data['current_question'] += 1
+    await state.update_data({'form_data': form_data})
+
+    # Переходим к следующему вопросу или завершаем
+    if form_data['current_question'] >= len(form_data['questions']):
+        await finish_form(message, form_data)
+        await state.update_data({'form_data': None})  # Очищаем состояние формы
+    else:
+        await ask_next_question(message, form_data)
+
+
+@router.callback_query(lambda c: c.data.startswith('form_opt:'))
+async def handle_form_option(callback: types.CallbackQuery, state: FSMContext):
+    """Обрабатывает выбор варианта в форме"""
+    data = await state.get_data()
+    if 'form_data' not in data:
+        await callback.answer()
+        return
+
+    form_data = data['form_data']
+    answer = callback.data.split(':', 1)[1]
+
+    # Обновляем состояние формы
+    form_data['answers'].append(answer)
+    form_data['current_question'] += 1
+    await state.update_data({'form_data': form_data})
+
+    await callback.message.delete()
+
+    # Переходим к следующему вопросу или завершаем
+    if form_data['current_question'] >= len(form_data['questions']):
+        await finish_form(callback.message, form_data)
+        await state.update_data({'form_data': None})  # Очищаем состояние формы
+    else:
+        await ask_next_question(callback.message, form_data)

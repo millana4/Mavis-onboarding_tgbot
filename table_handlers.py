@@ -1,43 +1,52 @@
 from typing import List, Dict, Optional, Tuple
 import re
 import logging
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from aiogram.fsm.context import FSMContext
 
 from config import Config
+from form_handler import _process_form
 from seatable_api import fetch_table
 from utils import prepare_telegram_message
 
 logger = logging.getLogger(__name__)
 
 
-async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID) -> Tuple[Dict, InlineKeyboardMarkup]:
+def _is_form(table_data: List[Dict]) -> bool:
+    """Проверяет, является ли таблица формой"""
+    return any('Answers_table' in row and row['Answers_table'] for row in table_data)
+
+
+async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
+                          message: Message = None,
+                          state: FSMContext = None) -> Tuple[Dict, InlineKeyboardMarkup]:
     """
-    Обрабатывает данные таблицы и создает Telegram-сообщение с меню
-    :param table_id: ID таблицы (по умолчанию '0000' - главное меню)
-    :return: Кортеж (контент, клавиатура)
+    Обрабатывает данные таблицы и создает Telegram-сообщение с меню или формой
     """
     logger.info(f"Начало обработки меню для table_id={table_id}")
 
-    # Получаем данные таблицы
     table_data = await fetch_table(table_id)
     if not table_data:
         logger.warning(f"Не удалось загрузить данные для table_id={table_id}")
         return {"text": "Не удалось загрузить данные"}, None
 
-    logger.info(f"Успешно загружено {len(table_data)} строк из таблицы {table_id}")
+    # Ветвление: форма или обычное меню
+    if _is_form(table_data):
+        logger.info(f"Таблица {table_id} идентифицирована как форма")
+        if message and state:  # Проверяем наличие необходимых аргументов
+            return await _process_form(table_data, message, state)
+        else:
+            logger.error("Для работы формы требуется message и state")
+            return {"text": "Ошибка инициализации формы"}, None
+    else:
+        logger.info(f"Таблица {table_id} - обычное меню")
+        # Логика обработки меню
+        content_part = await _process_content_part(table_data)
+        keyboard = await _create_menu_keyboard(table_data, table_id)
 
-    # 1. Обрабатываем контентную часть (Info)
-    content_part = await _process_content_part(table_data)
-    logger.info(f"Контентная часть подготовлена: {bool(content_part.get('text'))}")
-
-    # 2. Создаем инлайн-кнопки
-    keyboard = await _create_menu_keyboard(table_data, table_id)
-    logger.info(f"Клавиатура создана, кнопок: {len(keyboard.inline_keyboard)} строк")
-
-    content_part = await _process_content_part(table_data)
-    if 'parse_mode' not in content_part:
-        content_part['parse_mode'] = 'HTML'  # Добавляем parse_mode если его нет
-    return content_part, keyboard
+        if 'parse_mode' not in content_part:
+            content_part['parse_mode'] = 'HTML'
+        return content_part, keyboard
 
 
 async def _process_content_part(table_data: List[Dict]) -> Dict:
