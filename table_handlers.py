@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 
 from config import Config
 from form_handler import _process_form, _is_form
-from seatable_api import fetch_table
+from seatable_api_menu import fetch_table
 from utils import prepare_telegram_message
 
 logger = logging.getLogger(__name__)

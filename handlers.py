@@ -6,7 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 from config import Config
 from form_handler import finish_form, ask_next_question
 from table_handlers import handle_table_menu, handle_content_button
-from seatable_api import fetch_table
+from seatable_api_menu import fetch_table
 from utils import download_and_send_file, prepare_telegram_message
 import logging
 

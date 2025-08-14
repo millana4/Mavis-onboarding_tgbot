@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
 from config import Config
+from seatable_api_forms import save_form_answers
 from utils import prepare_telegram_message
 
 logger = logging.getLogger(__name__)
@@ -152,12 +153,39 @@ async def ask_next_question(message: Message, form_data: Dict):
     form_data['last_question_message_id'] = sent_message.message_id
     return sent_message
 
-
 async def finish_form(message: Message, form_data: Dict, state: FSMContext):
     """Завершает форму, сохраняет результат и показывает кнопку меню"""
+    # Проверяем наличие обязательных полей
+    required_fields = ['user_id', 'answers', 'answers_table']
+    if any(field not in form_data for field in required_fields):
+        logger.error(
+            f"Некорректные данные формы. Отсутствуют поля: {[f for f in required_fields if f not in form_data]}")
+        await message.answer("Произошла ошибка при обработке формы")
+        return
+
+    # Нормализуем answers если нужно
+    if isinstance(form_data['answers'], str):
+        try:
+            import json
+            form_data['answers'] = json.loads(form_data['answers'])
+        except json.JSONDecodeError as e:
+            logger.error(f"Не удалось преобразовать answers: {e}")
+            await message.answer("Ошибка обработки ответов")
+            return
+
+    # Добавляем timestamp, если его нет
+    if 'timestamp' not in form_data:
+        from datetime import datetime
+        form_data['timestamp'] = datetime.now().isoformat()
+
     # 1. Завершаем форму и сохраняем результат (передаем message.from_user.id)
     result = await complete_form(form_data, message.from_user.id)
     logger.info(f"Форма завершена: {result}")
+
+    # Сохраняем ответы в таблицу
+    save_success = await save_form_answers(form_data)
+    if not save_success:
+        logger.error("Не удалось сохранить ответы в таблицу")
 
     # 2. Подготавливаем финальное сообщение
     final_text = "Спасибо за обращение!"
