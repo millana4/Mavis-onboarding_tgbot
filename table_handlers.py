@@ -5,16 +5,11 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from aiogram.fsm.context import FSMContext
 
 from config import Config
-from form_handler import _process_form
+from form_handler import _process_form, _is_form
 from seatable_api import fetch_table
 from utils import prepare_telegram_message
 
 logger = logging.getLogger(__name__)
-
-
-def _is_form(table_data: List[Dict]) -> bool:
-    """Проверяет, является ли таблица формой"""
-    return any('Answers_table' in row and row['Answers_table'] for row in table_data)
 
 
 async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
@@ -46,6 +41,11 @@ async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
 
         if 'parse_mode' not in content_part:
             content_part['parse_mode'] = 'HTML'
+
+        # Если контента нет - возвращаем пустой текст
+        if not content_part.get('text') and not content_part.get('image_url'):
+            content_part['text'] = ''
+
         return content_part, keyboard
 
 

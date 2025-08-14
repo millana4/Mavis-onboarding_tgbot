@@ -109,16 +109,6 @@ async def process_menu_callback(callback_query: types.CallbackQuery, state: FSMC
                     text=content['text'],
                     **kwargs
                 )
-            else:
-                await callback_query.message.answer(
-                    text="Меню",
-                    **kwargs
-                )
-        elif keyboard:
-            await callback_query.message.answer(
-                text="Меню",
-                **kwargs
-            )
 
         await callback_query.answer()
 
@@ -202,8 +192,6 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
         button_content = None
         if current_key.startswith('content:'):
             _, current_table_id, current_row_id = current_key.split(':')
-
-            # Получаем конкретный Button_content текущей строки
             current_table_data = await fetch_table(current_table_id)
             current_row = next((r for r in current_table_data if r['_id'] == current_row_id), None)
             if current_row and current_row.get('Button_content'):
@@ -227,7 +215,7 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
             if button_content.get('image_url'):
                 await callback_query.message.answer_photo(
                     photo=button_content['image_url'],
-                    caption=button_content.get('text', ' '),
+                    caption=button_content.get('text', ''),
                     parse_mode="HTML"
                 )
             elif button_content.get('text'):
@@ -238,74 +226,58 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
 
         # Возвращаемся к предыдущему экрану
         if previous_key.startswith('content:'):
-            # Возврат к контенту
             _, table_id, row_id = previous_key.split(':')
             content, keyboard = await handle_content_button(table_id, row_id)
 
+            caption = content.get('text', '')  # Убрали дефолтный текст
             if content.get('image_url'):
                 await callback_query.message.answer_photo(
                     photo=content['image_url'],
-                    caption=content.get('text', "Информация"),
+                    caption=caption,
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
             else:
-                await callback_query.message.answer(
-                    text=content.get('text', "Информация"),
-                    reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
+                if caption:  # Отправляем только если есть текст
+                    await callback_query.message.answer(
+                        text=caption,
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
+                elif keyboard:  # Если нет текста, но есть клавиатура
+                    await callback_query.message.answer(
+                        text=' ',
+                        reply_markup=keyboard
+                    )
         else:
-            # Возврат к меню
             content, keyboard = await handle_table_menu(previous_key)
 
-            menu_text = content.get('text', "Меню") if content else "Меню"
-
+            menu_text = content.get('text', '')  # Убрали "Меню" по умолчанию
             if content and content.get('image_url'):
                 await callback_query.message.answer_photo(
                     photo=content['image_url'],
-                    caption=menu_text,
+                    caption=menu_text if menu_text else ' ',  # Пробел если пусто
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
             else:
-                await callback_query.message.answer(
-                    text=menu_text,
-                    reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
+                if menu_text:  # Отправляем только если есть текст
+                    await callback_query.message.answer(
+                        text=menu_text,
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
+                elif keyboard:  # Если нет текста, но есть клавиатура
+                    await callback_query.message.answer(
+                        text=' ',
+                        reply_markup=keyboard
+                    )
 
         await callback_query.answer()
 
     except Exception as e:
         logger.error(f"Back error: {str(e)}", exc_info=True)
         await callback_query.answer("Ошибка возврата", show_alert=True)
-
-
-@router.callback_query(lambda c: c.data.startswith('form_opt:'))
-async def handle_form_option(callback: types.CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор варианта в форме"""
-    data = await state.get_data()
-    if 'form_data' not in data:
-        await callback.answer()
-        return
-
-    # Получаем выбранный вариант
-    answer = callback.data.split(':', 1)[1]
-
-    # Обновляем состояние формы
-    form_data = data['form_data']
-    form_data['answers'].append(answer)
-    form_data['current_question'] += 1
-
-    await state.update_data(form_data=form_data)
-    await callback.message.delete()
-
-    # Переходим к следующему вопросу или завершаем
-    if form_data['current_question'] >= len(form_data['questions']):
-        await finish_form(callback.message, form_data)
-    else:
-        await ask_next_question(callback.message, form_data)
 
 
 @router.message()
@@ -322,18 +294,24 @@ async def handle_text_answer(message: types.Message, state: FSMContext):
     if current_question >= len(form_data['questions']):
         return
 
-    if not form_data['questions'][current_question].get('Free_input', True):
-        return
+    question_data = form_data['questions'][current_question]
+    answer_options = {
+        k: v for k, v in question_data.items()
+        if k.startswith('Answer_option_') and v is not None
+    }
 
-    # Обновляем и сохраняем состояние формы
+    if question_data.get('Free_input', False) is False and answer_options:
+        return  # Пропускаем, если это вопрос с вариантами
+
+
+    # Сохраняем ответ
     form_data['answers'].append(message.text)
     form_data['current_question'] += 1
-    await state.update_data({'form_data': form_data})
+    await state.update_data(form_data=form_data)
 
-    # Переходим к следующему вопросу или завершаем
     if form_data['current_question'] >= len(form_data['questions']):
-        await finish_form(message, form_data)
-        await state.update_data({'form_data': None})  # Очищаем состояние формы
+        await finish_form(message, form_data, state=state)
+        await state.update_data(form_data=None)
     else:
         await ask_next_question(message, form_data)
 
@@ -349,16 +327,25 @@ async def handle_form_option(callback: types.CallbackQuery, state: FSMContext):
     form_data = data['form_data']
     answer = callback.data.split(':', 1)[1]
 
-    # Обновляем состояние формы
+    # Отправляем выбранный ответ в чат
+    question_text = form_data['questions'][form_data['current_question']]['Name']
+    await callback.message.answer(f"Ваш ответ: «{answer}»")
+
+    # Сохраняем ответ
     form_data['answers'].append(answer)
     form_data['current_question'] += 1
-    await state.update_data({'form_data': form_data})
+    await state.update_data(form_data=form_data)
 
-    await callback.message.delete()
+    # Удаляем клавиатуру у вопроса
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except:
+        pass
 
     # Переходим к следующему вопросу или завершаем
     if form_data['current_question'] >= len(form_data['questions']):
-        await finish_form(callback.message, form_data)
-        await state.update_data({'form_data': None})  # Очищаем состояние формы
+        await finish_form(callback.message, form_data, state=state)
+        await state.update_data(form_data=None)
     else:
         await ask_next_question(callback.message, form_data)
+    await callback.answer()
