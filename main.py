@@ -6,12 +6,12 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import custom_logging
 import handlers
 from config import Config
-
-# Инициализация логирования
-custom_logging.setup_logging()
-logger = logging.getLogger(__name__)
+from custom_logging import UserLoggingMiddleware
 
 async def main():
+    # Инициализация логирования
+    custom_logging.setup_logging()
+    logger = logging.getLogger(__name__)
     logger.info("Запуск бота...")
 
     # Инициализация хранилища MemoryStorage
@@ -21,6 +21,9 @@ async def main():
     # Инициализация бота и диспетчера
     bot = Bot(token=Config.BOT_TOKEN)
     dp = Dispatcher(storage=storage)
+
+    # Добавляем middleware
+    dp.update.middleware(UserLoggingMiddleware())
 
     # Регистрация роутеров
     dp.include_router(handlers.router)

@@ -25,7 +25,7 @@ async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
         logger.warning(f"Не удалось загрузить данные для table_id={table_id}")
         return {"text": "Не удалось загрузить данные"}, None
 
-    # Ветвление: форма или обычное меню
+    # Ветвление — обрабатывается форма или обычное меню
     if _is_form(table_data):
         logger.info(f"Таблица {table_id} идентифицирована как форма")
         if message and state:  # Проверяем наличие необходимых аргументов

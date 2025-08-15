@@ -1,4 +1,5 @@
 import asyncio
+import pprint
 import logging
 from typing import List, Dict, Optional
 from aiogram.client.session import aiohttp
@@ -8,25 +9,20 @@ from seatable_api_menu import get_base_token, fetch_table
 logger = logging.getLogger(__name__)
 
 
-async def save_form_answers(form_data: Dict) -> bool:
-    """Сохраняет ответы формы в указанную таблицу Seatable, используя только table_id (tid)"""
-    logger.info("Начало сохранения ответов формы")
-
+async def prepare_data_to_post_in_seatable(form_data: Dict) -> Optional[Dict]:
+    """
+    Подготавливает данные для сохранения в Seatable.
+    Возвращает словарь с данными или None в случае ошибки.
+    """
     # Проверяем обязательные поля
     required_fields = ['user_id', 'questions', 'answers', 'answers_table']
     if any(field not in form_data for field in required_fields):
         logger.error(f"Отсутствуют обязательные поля: {[f for f in required_fields if f not in form_data]}")
-        return False
+        return None
 
     if len(form_data['questions']) != len(form_data['answers']):
         logger.error(f"Количество вопросов ({len(form_data['questions'])}) != ответов ({len(form_data['answers'])})")
-        return False
-
-    # Получаем токен доступа
-    token_data = await get_base_token()
-    if not token_data:
-        logger.error("Не удалось получить токен SeaTable")
-        return False
+        return None
 
     # Извлекаем table_id из URL
     try:
@@ -37,13 +33,9 @@ async def save_form_answers(form_data: Dict) -> bool:
         logger.info(f"Table ID: {table_id}")
     except Exception as e:
         logger.error(f"Ошибка парсинга URL таблицы: {e}")
-        return False
+        return None
 
     # Подготавливаем данные
-    user_id = str(form_data['user_id'])
-    questions = form_data['questions']
-    answers = form_data['answers']
-
     try:
         from datetime import datetime
         timestamp = form_data.get('timestamp', datetime.now().isoformat())
@@ -54,15 +46,40 @@ async def save_form_answers(form_data: Dict) -> bool:
 
     # Формируем строку для записи
     row_data = {
-        'Name': user_id,
+        'Name': str(form_data['user_id']),
         'Дата и время': formatted_date
     }
 
     # Добавляем вопросы и ответы
-    for question_data, answer in zip(questions, answers):
+    for question_data, answer in zip(form_data['questions'], form_data['answers']):
         question_text = question_data.get('Name', '')
         if question_text:
             row_data[question_text] = str(answer) if answer is not None else ''
+
+    return {
+        'row_data': row_data,
+        'table_id': table_id
+    }
+
+async def save_form_answers(form_data: Dict) -> bool:
+    """Сохраняет ответы формы в указанную таблицу Seatable"""
+    logger.info("Начало сохранения ответов формы")
+
+    # Получаем токен доступа
+    token_data = await get_base_token()
+    if not token_data:
+        logger.error("Не удалось получить токен SeaTable")
+        return False
+
+    # Подготавливаем данные
+    prepared_data = await prepare_data_to_post_in_seatable(form_data)
+    pprint.pprint(prepared_data)
+    if not prepared_data:
+        logger.error("Не удалось подготовить данные для сохранения")
+        return False
+
+    row_data = prepared_data['row_data']
+    table_id = prepared_data['table_id']
 
     logger.info(f"Данные для записи: {row_data}")
 
@@ -93,7 +110,7 @@ async def save_form_answers(form_data: Dict) -> bool:
             for col_name in row_data.keys():
                 if col_name not in existing_columns:
                     payload = {
-                        "table_id": table_id,  # Используем только table_id
+                        "table_id": table_id,
                         "column_name": col_name,
                         "column_type": "text"
                     }
@@ -109,7 +126,7 @@ async def save_form_answers(form_data: Dict) -> bool:
     # 2. Добавляем строку с данными
     rows_url = f"{token_data['dtable_server'].rstrip('/')}/api/v1/dtables/{token_data['dtable_uuid']}/rows/"
     payload = {
-        "table_id": table_id,  # Используем только table_id
+        "table_id": table_id,
         "rows": [row_data]
     }
 
@@ -128,6 +145,12 @@ async def save_form_answers(form_data: Dict) -> bool:
     except Exception as e:
         logger.error(f"Ошибка при сохранении: {e}")
         return False
+
+
+
+
+
+
 
 
 async def debug_table_info(table_id: str):

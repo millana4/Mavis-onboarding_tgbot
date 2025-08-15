@@ -252,7 +252,7 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
         else:
             content, keyboard = await handle_table_menu(previous_key)
 
-            menu_text = content.get('text', '')  # Убрали "Меню" по умолчанию
+            menu_text = content.get('text', '')
             if content and content.get('image_url'):
                 await callback_query.message.answer_photo(
                     photo=content['image_url'],
@@ -282,7 +282,7 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
 
 @router.message()
 async def handle_text_answer(message: types.Message, state: FSMContext):
-    """Обрабатывает текстовые ответы в форме"""
+    """Обрабатывает текстовые ответы в форме обратной связи"""
     data = await state.get_data()
     if 'form_data' not in data:
         return

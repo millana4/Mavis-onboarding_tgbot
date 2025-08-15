@@ -1,7 +1,38 @@
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from aiogram.types import Update
 
+
+class UserLoggingMiddleware:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+
+    async def __call__(self, handler, event: Update, data: dict):
+        user_id = None
+        if event.message:
+            user_id = event.message.from_user.id
+        elif event.callback_query:
+            user_id = event.callback_query.from_user.id
+
+        if user_id:
+            # Убираем добавление user_id в сообщение, так как фильтр сделает это
+            self.logger.info(f"Update id={event.update_id}", extra={'user_id': user_id})
+        else:
+            self.logger.info(f"Update id={event.update_id} (no user_id)")
+
+        return await handler(event, data)
+
+
+class UserIdFilter(logging.Filter):
+    """Фильтр для добавления ID пользователя в логи"""
+    def filter(self, record):
+        # Убираем дублирование [user:] в сообщении
+        if hasattr(record, 'user_id'):
+            if record.msg.startswith(f"[user:{record.user_id}]"):
+                return True
+            record.msg = f"[user:{record.user_id}] {record.msg}"
+        return True
 
 def setup_logging():
     """Настройка логирования для всего проекта"""
@@ -13,12 +44,15 @@ def setup_logging():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
-    # Формат логов
+    # Формат логов (убираем user_id из формата, так как он будет в сообщении)
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
-    # Файловый обработчик (ротация каждые 5 МБ)
+    # Наш кастомный фильтр
+    user_filter = UserIdFilter()
+
+    # Файловый обработчик
     file_handler = RotatingFileHandler(
         'logs/bot.log',
         maxBytes=10 * 1024 * 1024,
@@ -26,14 +60,18 @@ def setup_logging():
         encoding='utf-8'
     )
     file_handler.setFormatter(formatter)
+    file_handler.addFilter(user_filter)
 
     # Консольный обработчик
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(user_filter)
 
     # Добавляем обработчики
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+    if not logger.handlers:
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
 
-    # Уменьшаем логирование для библиотек
-    logging.getLogger('aiogram').setLevel(logging.INFO)
+    # Настройка логирования aiogram
+    aiogram_logger = logging.getLogger('aiogram')
+    aiogram_logger.setLevel(logging.INFO)
