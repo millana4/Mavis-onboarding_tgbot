@@ -68,7 +68,7 @@ async def _process_form(table_data: List[Dict], message: Message, state: FSMCont
             parse_mode=form_content.get('parse_mode', 'HTML')
         )
 
-    # Задержка перед первым вопросом
+    # Задержка перед первым вопросом, чтобы постился после инфо
     await asyncio.sleep(0.5)
     await ask_next_question(message, form_data)
 
