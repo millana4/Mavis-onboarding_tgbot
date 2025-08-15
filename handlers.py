@@ -229,7 +229,7 @@ async def process_back_callback(callback_query: types.CallbackQuery, state: FSMC
             _, table_id, row_id = previous_key.split(':')
             content, keyboard = await handle_content_button(table_id, row_id)
 
-            caption = content.get('text', '')  # Убрали дефолтный текст
+            caption = content.get('text', '')
             if content.get('image_url'):
                 await callback_query.message.answer_photo(
                     photo=content['image_url'],

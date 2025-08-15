@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 async def prepare_data_to_post_in_seatable(form_data: Dict) -> Optional[Dict]:
     """
-    Подготавливает данные для сохранения в Seatable.
+    Подготавливает данные из форм обратной связи для сохранения в Seatable.
     Возвращает словарь с данными или None в случае ошибки.
     """
     # Проверяем обязательные поля
@@ -132,7 +132,7 @@ async def save_form_answers(form_data: Dict) -> bool:
     }
 
     try:
-        logger.info(f"Отправка данных в таблицу {table_id}...")
+        logger.info(f"Отправка данных в таблицу {table_id}")
         async with aiohttp.ClientSession() as session:
             async with session.post(rows_url, json=payload, headers=headers) as response:
                 if response.status in (200, 201):

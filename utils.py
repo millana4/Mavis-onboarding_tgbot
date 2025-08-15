@@ -99,6 +99,7 @@ def prepare_telegram_message(markdown_content: str) -> Dict[str, str]:
     result['text'] = text.strip()
     return result
 
+
 async def download_and_send_file(file_url: str, callback_query: types.CallbackQuery):
     """Скачивает файл по прямому URL и отправляет его в чат, откуда пришёл callback."""
     try:

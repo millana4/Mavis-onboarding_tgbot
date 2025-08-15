@@ -124,7 +124,7 @@ async def get_form_question(form_state: Dict) -> Tuple[str, Optional[InlineKeybo
 async def complete_form(form_state: Dict, user_id: int) -> Dict:
     """Формирует финальные данные формы с корректным user_id"""
     return {
-        "user_id": user_id,  # Используем переданный user_id (из message.from_user.id)
+        "user_id": user_id,  # Используем переданный user_id (из message.chat.id)
         "questions": form_state["questions"],  # Добавляем вопросы в результат
         "answers": form_state["answers"],
         "answers_table": form_state["answers_table"],
@@ -173,14 +173,14 @@ async def finish_form(message: Message, form_data: Dict, state: FSMContext):
         from datetime import datetime
         form_data['timestamp'] = datetime.now().isoformat()
 
-    # Завершаем форму и сохраняем результат (передаем message.from_user.id)
+    # Завершаем форму и сохраняем результат
     result = await complete_form(form_data, message.from_user.id)
     logger.info(f"Форма завершена: {result}")
 
     # Сохраняем ответы в таблицу
     save_success = await save_form_answers({
         **form_data,
-        "user_id": message.from_user.id  # Используем user_id из сообщения
+        "user_id": message.chat.id  # id пользователя в телеграме, не бота
     })
 
     # Подготавливаем финальное сообщение
