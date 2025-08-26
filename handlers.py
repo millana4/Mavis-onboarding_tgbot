@@ -1,13 +1,16 @@
-from aiogram import Router, types
-from aiogram.filters import Command
+from aiogram import Router, types, F
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import ReplyKeyboardRemove
 
 from config import Config
 from form_handler import finish_form, ask_next_question
+from keyboard import share_contact_kb
+from seatable_api_authorization import register_id_telegram, check_id_telegram
 from table_handlers import handle_table_menu, handle_content_button
 from seatable_api_menu import fetch_table
-from utils import download_and_send_file, prepare_telegram_message
+from utils import download_and_send_file, prepare_telegram_message, normalize_phone
 import logging
 
 # Создаем роутер
@@ -19,17 +22,18 @@ class Navigation(StatesGroup):
     current_menu = State()  # Хранит текущее меню и историю для каждого пользователя
     form_data = State()  # Состояние для формы
 
-# Хендлер команды /start
-@router.message(Command("start"))
-async def send_welcome(message: types.Message, state: FSMContext):
-    """Обработчик команды /start с инициализацией FSM"""
+async def start_navigation(message: types.Message, state: FSMContext):
+    """Инициализирует FSM и показывает главное меню"""
     try:
         # Инициализируем состояние навигации
         await state.update_data(
             current_menu=Config.SEATABLE_MAIN_MENU_ID,
             navigation_history=[Config.SEATABLE_MAIN_MENU_ID]
         )
+        # Сбрасываем состояние формы, если оно было
+        await state.set_state(Navigation.current_menu)
 
+        # Получаем контент и клавиатуру для главного меню
         content, keyboard = await handle_table_menu(Config.SEATABLE_MAIN_MENU_ID, message=message, state=state)
 
         kwargs = {
@@ -37,6 +41,7 @@ async def send_welcome(message: types.Message, state: FSMContext):
             'parse_mode': 'HTML'
         }
 
+        # Отправляем контент в чат в зависимости от типа
         if content.get('image_url'):
             await message.answer_photo(
                 photo=content['image_url'],
@@ -55,11 +60,62 @@ async def send_welcome(message: types.Message, state: FSMContext):
                 **kwargs
             )
         elif keyboard:
+            # Если есть только кнопки, отправляем пустое сообщение с ними
             await message.answer(" ", **kwargs)
+        else:
+            # На случай, если меню пустое
+            await message.answer("Главное меню", **kwargs)
 
     except Exception as e:
-        logger.error(f"Error in /start: {str(e)}", exc_info=True)
-        await message.answer("Произошла ошибка, попробуйте позже")
+        logger.error(f"Error in start_navigation for user {message.from_user.id}: {str(e)}", exc_info=True)
+        await message.answer("⚠️ Произошла ошибка при загрузке меню. Попробуйте позже.")
+
+
+@router.message(CommandStart())
+async def cmd_start(message: types.Message, state: FSMContext):  # <- Добавлен state
+    """Обработчик нажатия кнопки Старт"""
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} нажал кнопку Старт")
+
+    # Проверяем, есть ли пользователь с таким id_telegram
+    already_member = await check_id_telegram(user_id)
+    logger.info(f"Пользователь {user_id} авторизован: {already_member}")
+
+    if already_member:
+        # Если пользователь есть в таблице, инициализируем навигацию
+        await start_navigation(message=message, state=state)
+    else:
+        # Иначе просим поделиться контактом
+        await message.answer(
+            "Поделитесь, пожалуйста, вашим контактом — номером телефона, чтобы авторизоваться в системе.",
+            reply_markup=share_contact_kb,
+        )
+
+
+@router.message(F.contact)
+async def handle_contact(message: types.Message, state: FSMContext):  # <- Добавлен state
+    """Обработка контакта для авторизации"""
+    contact = message.contact
+    user_id = message.from_user.id
+
+    normalized_phone = normalize_phone(contact.phone_number)
+    logger.info(f"Пользователь {user_id} прислал номер: {contact.phone_number} (нормализован: {normalized_phone})")
+
+    # Добавляем id_telegram пользователя в таблицу Seatable
+    success = await register_id_telegram(normalized_phone, user_id)
+
+    if success:
+        await message.answer(
+            "🎉 Вы успешно авторизовались! Что вас интересует?",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        # После успешной регистрации запускаем навигацию
+        await start_navigation(message=message, state=state)
+    else:
+        await message.answer(
+            "🚫 Ваш номер телефона не найден в системе. Чтобы получить доступ в бот, обратитесь, пожалуйста, к эйчар-менеджеру.",
+            reply_markup=ReplyKeyboardRemove()
+        )
 
 
 # Хендлер для кнопок меню
