@@ -2,6 +2,7 @@ import asyncio
 import logging
 import pprint
 
+from aiogram import Router, types
 from aiogram.types import Message
 from typing import List, Dict, Optional, Tuple
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -12,6 +13,8 @@ from config import Config
 from seatable_api_forms import save_form_answers
 from utils import prepare_telegram_message
 
+
+router = Router()
 logger = logging.getLogger(__name__)
 
 
@@ -146,6 +149,77 @@ async def ask_next_question(message: Message, form_data: Dict):
     # Сохраняем ID отправленного вопроса для последующего редактирования
     form_data['last_question_message_id'] = sent_message.message_id
     return sent_message
+
+
+@router.message()
+async def handle_text_answer(message: types.Message, state: FSMContext):
+    """Обрабатывает текстовые ответы в форме обратной связи"""
+    data = await state.get_data()
+    if 'form_data' not in data:
+        return
+
+    form_data = data['form_data']
+    current_question = form_data['current_question']
+
+    # Проверяем, ожидаем ли мы текстовый ответ
+    if current_question >= len(form_data['questions']):
+        return
+
+    question_data = form_data['questions'][current_question]
+    answer_options = {
+        k: v for k, v in question_data.items()
+        if k.startswith('Answer_option_') and v is not None
+    }
+
+    if question_data.get('Free_input', False) is False and answer_options:
+        return  # Пропускаем, если это вопрос с вариантами
+
+
+    # Сохраняем ответ
+    form_data['answers'].append(message.text)
+    form_data['current_question'] += 1
+    await state.update_data(form_data=form_data)
+
+    if form_data['current_question'] >= len(form_data['questions']):
+        await finish_form(message, form_data, state=state)
+        await state.update_data(form_data=None)
+    else:
+        await ask_next_question(message, form_data)
+
+
+@router.callback_query(lambda c: c.data.startswith('form_opt:'))
+async def handle_form_option(callback: types.CallbackQuery, state: FSMContext):
+    """Обрабатывает выбор варианта в форме"""
+    data = await state.get_data()
+    if 'form_data' not in data:
+        await callback.answer()
+        return
+
+    form_data = data['form_data']
+    answer = callback.data.split(':', 1)[1]
+
+    # Отправляем выбранный ответ в чат
+    question_text = form_data['questions'][form_data['current_question']]['Name']
+    await callback.message.answer(f"Ваш ответ: «{answer}»")
+
+    # Сохраняем ответ
+    form_data['answers'].append(answer)
+    form_data['current_question'] += 1
+    await state.update_data(form_data=form_data)
+
+    # Удаляем клавиатуру у вопроса
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except:
+        pass
+
+    # Переходим к следующему вопросу или завершаем
+    if form_data['current_question'] >= len(form_data['questions']):
+        await finish_form(callback.message, form_data, state=state)
+        await state.update_data(form_data=None)
+    else:
+        await ask_next_question(callback.message, form_data)
+    await callback.answer()
 
 
 async def finish_form(message: Message, form_data: Dict, state: FSMContext):

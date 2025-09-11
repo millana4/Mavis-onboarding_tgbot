@@ -3,7 +3,7 @@ import logging
 from typing import List, Dict, Optional
 from aiogram.client.session import aiohttp
 
-from seatable_api_menu import get_base_token
+from seatable_api_base import get_base_token
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ import pprint
 from aiogram.client.session import aiohttp
 
 from config import Config
-from seatable_api_menu import get_base_token
+from seatable_api_base import get_base_token
 from utils import normalize_phone
 
 logger = logging.getLogger(__name__)

@@ -1,14 +1,16 @@
 from typing import List, Dict, Optional, Tuple
 import re
 import logging
+from aiogram import Router, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from aiogram.fsm.context import FSMContext
 
 from config import Config
-from form_handler import _process_form, _is_form
+from handler_form import _process_form, _is_form
 from seatable_api_menu import fetch_table
-from utils import prepare_telegram_message
+from utils import prepare_telegram_message, download_and_send_file
 
+router = Router()
 logger = logging.getLogger(__name__)
 
 
@@ -71,7 +73,15 @@ async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str) -
         if not name or name == 'Info':
             continue
 
-        if row.get('Submenu_link'):
+        if row.get('Submenu_link') and Config.SEATABLE_ATS_APP in row.get('Submenu_link'):
+            # В Submenu_link может быть ссылка на справочник сотрудников
+            submenu_id = re.search(r'tid=([^&]+)', row['Submenu_link']).group(1)
+            inline_keyboard.append([InlineKeyboardButton(
+                text=name,
+                callback_data=f"ats:{submenu_id}"
+            )])
+        elif row.get('Submenu_link'):
+            # Или в Submenu_link может быть ссылка на другое меню
             submenu_id = re.search(r'tid=([^&]+)', row['Submenu_link']).group(1)
             inline_keyboard.append([InlineKeyboardButton(
                 text=name,
@@ -96,6 +106,119 @@ async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str) -
         )])
 
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
+
+
+# Хендлер для кнопок меню
+@router.callback_query(lambda c: c.data.startswith('menu:'))
+async def process_menu_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик перехода между меню"""
+    try:
+        # Получаем и обновляем состояние
+        data = await state.get_data()
+        navigation_history = data.get('navigation_history', [Config.SEATABLE_MAIN_MENU_ID])
+        new_table_id = callback_query.data.split(':')[1]
+
+        navigation_history.append(new_table_id, )
+        await state.update_data(
+            current_menu=new_table_id,
+            navigation_history=navigation_history
+        )
+
+        # Получаем данные меню
+        content, keyboard = await handle_table_menu(
+            new_table_id,
+            message=callback_query.message,
+            state=state
+        )
+
+        # Удаляем предыдущее сообщение и создаем новое
+        try:
+            await callback_query.message.delete()
+        except:
+            pass
+
+        # Отправляем новое сообщение с учетом типа контента
+        kwargs = {
+            'reply_markup': keyboard,
+            'parse_mode': 'HTML'
+        }
+
+        if content:
+            if content.get('image_url'):
+                await callback_query.message.answer_photo(
+                    photo=content['image_url'],
+                    caption=content.get('text', ' '),
+                    **kwargs
+                )
+            elif content.get('text'):
+                await callback_query.message.answer(
+                    text=content['text'],
+                    **kwargs
+                )
+
+        await callback_query.answer()
+
+    except Exception as e:
+        logger.error(f"Menu navigation error: {str(e)}", exc_info=True)
+        await callback_query.answer("Ошибка навигации", show_alert=True)
+
+
+@router.callback_query(lambda c: c.data.startswith('content:'))
+async def process_content_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик контентных кнопок (постит в чат)"""
+    try:
+        # Получаем параметры контента
+        _, table_id, row_id = callback_query.data.split(':')
+
+        # Обновляем историю
+        data = await state.get_data()
+        navigation_history = data.get('navigation_history', [])
+        navigation_history.append(f"content:{table_id}:{row_id}")
+        await state.update_data(navigation_history=navigation_history)
+
+        # Получаем данные контента
+        table_data = await fetch_table(table_id)
+        row = next((r for r in table_data if r['_id'] == row_id), None)
+
+        if not row:
+            await callback_query.answer("Контент не найден", show_alert=True)
+            return
+
+        # Удаляем предыдущее меню
+        try:
+            await callback_query.message.delete()
+        except:
+            pass
+
+        # Отправляем вложение (если есть)
+        if row.get('Attachment'):
+            await download_and_send_file(
+                file_url=row['Attachment'],
+                callback_query=callback_query
+            )
+
+        # Отправляем основной контент
+        content, keyboard = await handle_content_button(table_id, row_id)
+
+        if content.get('image_url'):
+            await callback_query.message.answer_photo(
+                photo=content['image_url'],
+                caption=content.get('text', "Информация"),  # Гарантированный текст
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        else:
+            await callback_query.message.answer(
+                text=content.get('text', "Информация"),
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+
+        await callback_query.answer()
+
+    except Exception as e:
+        logger.error(f"Content error: {str(e)}", exc_info=True)
+        await callback_query.answer("Ошибка загрузки контента", show_alert=True)
 
 
 async def handle_content_button(table_id: str, row_id: str) -> Tuple[Dict, Optional[InlineKeyboardMarkup]]:

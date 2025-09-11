@@ -5,6 +5,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 import custom_logging
 import handlers
+import handler_form
+import handler_table
 from config import Config
 from custom_logging import UserLoggingMiddleware
 
@@ -27,6 +29,8 @@ async def main():
 
     # Регистрация роутеров
     dp.include_router(handlers.router)
+    dp.include_router(handler_form.router)
+    dp.include_router(handler_table.router)
 
     # Запуск бота
     await dp.start_polling(bot)
