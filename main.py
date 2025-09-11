@@ -5,6 +5,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 import custom_logging
 import handlers
+import handler_ats
 import handler_form
 import handler_table
 from config import Config
@@ -31,6 +32,7 @@ async def main():
     dp.include_router(handlers.router)
     dp.include_router(handler_form.router)
     dp.include_router(handler_table.router)
+    dp.include_router(handler_ats.router)
 
     # Запуск бота
     await dp.start_polling(bot)

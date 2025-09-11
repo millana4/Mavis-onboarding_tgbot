@@ -5,10 +5,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardRemove
 
 from config import Config
-from keyboard import share_contact_kb
+from keyboards import share_contact_kb
 from seatable_api_authorization import register_id_telegram, check_id_telegram
 from handler_table import handle_table_menu, handle_content_button
-from seatable_api_menu import fetch_table
+from seatable_api_base import fetch_table
 from utils import prepare_telegram_message, normalize_phone
 import logging
 
@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 class Navigation(StatesGroup):
     current_menu = State()  # Хранит текущее меню и историю для каждого пользователя
     form_data = State()  # Состояние для формы
-    ats_data = State()   # Состояние для переходов по справочнику
 
 
 @router.message(CommandStart())

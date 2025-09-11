@@ -1,13 +1,13 @@
-from typing import List, Dict, Optional, Tuple
 import re
 import logging
+from typing import List, Dict, Optional, Tuple
 from aiogram import Router, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from aiogram.fsm.context import FSMContext
 
 from config import Config
 from handler_form import _process_form, _is_form
-from seatable_api_menu import fetch_table
+from seatable_api_base import fetch_table
 from utils import prepare_telegram_message, download_and_send_file
 
 router = Router()
