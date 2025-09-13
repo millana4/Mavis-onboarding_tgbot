@@ -30,9 +30,10 @@ async def main():
 
     # Регистрация роутеров
     dp.include_router(handlers.router)
+    dp.include_router(handler_ats.router)
     dp.include_router(handler_form.router)
     dp.include_router(handler_table.router)
-    dp.include_router(handler_ats.router)
+
 
     # Запуск бота
     await dp.start_polling(bot)

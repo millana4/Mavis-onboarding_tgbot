@@ -8,15 +8,14 @@ share_contact_kb = ReplyKeyboardMarkup(
     one_time_keyboard=True,
 )
 
-BTN_EMPLOYEE_SEARCH = "🔍 Искать по ФИО"
-BTN_DEPARTMENT_SEARCH = "👀 Искать по отделу"
-BTN_BACK = "⬅️ Назад"
+BTN_EMPLOYEE_SEARCH = '🔍 Искать по ФИО'
+BTN_DEPARTMENT_SEARCH = '👀 Искать по отделу'
+BTN_BACK = '⬅️ Назад'
 
 search_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text=BTN_EMPLOYEE_SEARCH)],
-        [KeyboardButton(text=BTN_DEPARTMENT_SEARCH)],
-        [KeyboardButton(text=BTN_BACK)],
+        [KeyboardButton(text=BTN_EMPLOYEE_SEARCH), KeyboardButton(text=BTN_DEPARTMENT_SEARCH)],
+        [KeyboardButton(text=BTN_BACK)]
     ],
     resize_keyboard=True,
     one_time_keyboard=True,
