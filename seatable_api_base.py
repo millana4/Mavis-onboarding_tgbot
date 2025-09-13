@@ -98,13 +98,18 @@ async def get_base_token(app='HR') -> Optional[Dict]:
     return None
 
 
-async def fetch_table(table_id: str = '0000') -> List[Dict]:
+async def fetch_table(table_id: str = '0000', app: str = "HR") -> List[Dict]:
     """
     Получает строки таблицы.
     Аргументом принимает '_id'. В http таблицы указан как tid.
     Если _id при вызове не указан, то выставляет _id главного меню — 0000.
     """
-    token_data = await get_base_token()
+    # Запрашиваем токен для нужного приложения — Мавис-HR или телефонный справочник
+    if app == 'ATS':
+        token_data = await get_base_token('ATS')
+    else:
+        token_data = await get_base_token()
+
     if not token_data:
         logger.error("Не удалось получить токен SeaTable")
         return []
