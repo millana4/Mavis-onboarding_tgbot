@@ -4,12 +4,14 @@ import pprint
 
 from aiogram import Router, types
 from aiogram.types import Message
+from aiogram.filters import StateFilter
 from typing import List, Dict, Optional, Tuple
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
 from config import Config
+from handlers import Navigation
 from seatable_api_forms import save_form_answers
 from utils import prepare_telegram_message
 
@@ -54,6 +56,7 @@ async def _process_form(table_data: List[Dict], message: Message, state: FSMCont
         **await state.get_data(),
         'form_data': form_data
     })
+    await state.set_state(Navigation.form_data)
 
     # Подготавливаем контент
     form_content = prepare_telegram_message(info_row.get('Content', ''))
@@ -151,7 +154,7 @@ async def ask_next_question(message: Message, form_data: Dict):
     return sent_message
 
 
-@router.message()
+@router.message(StateFilter(Navigation.form_data))
 async def handle_text_answer(message: types.Message, state: FSMContext):
     """Обрабатывает текстовые ответы в форме обратной связи"""
     data = await state.get_data()

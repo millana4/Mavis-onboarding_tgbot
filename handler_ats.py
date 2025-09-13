@@ -1,23 +1,17 @@
 import logging
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, ReplyKeyboardRemove
 from aiogram.filters import StateFilter
 
+
 from config import Config
+from models import SearchState
 from handlers import start_navigation
 from keyboards import search_kb, BTN_DEPARTMENT_SEARCH, BTN_EMPLOYEE_SEARCH, BTN_BACK
 
 router = Router()
 logger = logging.getLogger(__name__)
-
-
-# Добавляем состояние для поиска
-class SearchState(StatesGroup):
-    waiting_for_search_type = State()
-    waiting_for_name_search = State()
-    waiting_for_department_search = State()
 
 
 # Хендлер для кнопки со справочником сотрудников
@@ -218,7 +212,7 @@ async def process_department_input(message: Message, state: FSMContext):
 
 
 
-@router.message()
+@router.message(StateFilter(None))
 async def fallback_handler(message: Message, state: FSMContext):
     current_state = await state.get_state()
     logger.warning(f"[FALLBACK] Необработанное сообщение: {message.text!r} при состоянии {current_state}")
