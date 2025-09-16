@@ -5,11 +5,11 @@ from typing import List, Dict, Optional
 from aiogram.types import message
 
 from config import Config
-from seatable_api_base import fetch_table
+from seatable_api_base import fetch_table, get_metadata
 
 logger = logging.getLogger(__name__)
 
-async def get_employees(search_query):
+async def get_employees() -> List[Dict]:
     """
     Обращается по АПИ в таблицу со справочником и возвращает json с данными сотрудников.
     Пример ответа:
@@ -36,4 +36,32 @@ async def get_employees(search_query):
         logger.error(f"API error in get_employees: {str(e)}", exc_info=True)
         await message.answer("Ошибка при обработке запроса")
         return None
+
+
+async def get_department_list() -> List[str]:
+    """
+    Обращается по АПИ в таблицу со справочником, получает метаданные таблицы.
+    Затем из метаданных формирует список отделов (только названия).
+    """
+    try:
+        ats_table_metadata = await get_metadata('ATS')
+
+        # Достаём список таблиц
+        tables_list = ats_table_metadata.get('metadata', {}).get('tables', [])
+
+        for table in tables_list:
+            if table.get('_id') == Config.SEATABLE_EMPLOYEE_BOOK_ID:
+                columns = table.get('columns', [])
+
+                # Ищем колонку Department
+                for column in columns:
+                    if column.get('name') == 'Department':
+                        options = column.get('data', {}).get('options', [])
+                        # Берём только названия отделов
+                        return [opt.get("name") for opt in options if isinstance(opt, dict)]
+
+        return []
+    except Exception as e:
+        print(f"Ошибка при получении списка отделов: {e}")
+        return []
 

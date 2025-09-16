@@ -137,9 +137,14 @@ async def fetch_table(table_id: str = '0000', app: str = "HR") -> List[Dict]:
     return []
 
 
-async def get_metadata() -> Optional[Dict[str, str]]:
-    """Функция для отладки АПИ. Возвращает метаданные всех таблиц."""
-    token_data = await get_base_token()
+async def get_metadata(app: str = "HR") -> Optional[Dict[str, str]]:
+    """Функция возвращает метаданные любой таблицы."""
+    # Запрашиваем токен для нужного приложения — Мавис-HR или телефонный справочник
+    if app == 'ATS':
+        token_data = await get_base_token('ATS')
+    else:
+        token_data = await get_base_token()
+
     if not token_data:
         logger.error("Не удалось получить токен SeaTable")
         return None
@@ -176,7 +181,7 @@ async def get_metadata() -> Optional[Dict[str, str]]:
 #         pprint.pprint(menu_rows)
 #
 #         print("МЕТАДАННЫЕ ТАБЛИЦ")
-#         metadata = await get_metadata()
+#         metadata = await get_metadata('ATS')
 #         pprint.pprint(metadata)
 #
 #     asyncio.run(main())

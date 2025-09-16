@@ -10,7 +10,7 @@ from config import Config
 from models import SearchState
 from handlers import start_navigation
 from keyboards import search_kb, BTN_DEPARTMENT_SEARCH, BTN_EMPLOYEE_SEARCH, BTN_BACK
-from seatable_api_ats import get_employees
+from seatable_api_ats import get_employees, get_department_list
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -62,8 +62,8 @@ async def handle_name_search(message: Message, state: FSMContext):
     try:
         # Убираем клавиатуру выбора и просим ввести ФИО
         await message.answer(
-            "Укажите пожалуйста, фамилию и/или полное имя сотрудника, например: Иван Смирнов или Смирнов Иван, "
-            "или Смирнов, или просто Иван.",
+            "Укажите, пожалуйста, фамилию и/или полное имя сотрудника, например: Иван Соколов или Соколов Иван, "
+            "или Соколов, или просто Иван.",
             reply_markup=ReplyKeyboardRemove()
         )
 
@@ -89,11 +89,11 @@ async def process_name_input(message: Message, state: FSMContext):
 
         logger.info(f"Поиск по ФИО: {search_query}")
 
-        # Обращается по АПИ в таблицу со справочником и возвращает json с данными сотрудников
-        employees = await get_employees(search_query)
+        # Обращается по АПИ в таблицу со справочником и возвращает json с данными всех сотрудников
+        employees = await get_employees()
 
         # После поиска показываем результаты и кнопку Назад
-        searched_emloyees = await give_employee_data(search_query, employees, state)
+        searched_emloyees = await give_employee_data("Name/Department", search_query, employees, state)
 
         # Выводит сообщение с результатами поиска и показывает его, пока пользователь не нажмет Назад
         await show_employee(searched_emloyees, message, state)
@@ -103,9 +103,12 @@ async def process_name_input(message: Message, state: FSMContext):
         await message.answer("Ошибка при обработке запроса")
 
 
-async def give_employee_data(search_query: str, employees: List[Dict], state: FSMContext) -> List[Dict]:
+async def give_employee_data(search_type: str, search_query: str, employees: List[Dict], state: FSMContext) -> List[Dict]:
     """
     Ищет сотрудников по строке search_query в списке employees.
+    На вход нужно передать тип поиска:
+    - По ФИО: "Name/Department"
+    - По отделу: "Department"
     Возвращает список с данными найденных сотрудников.
     """
     results = []
@@ -118,7 +121,7 @@ async def give_employee_data(search_query: str, employees: List[Dict], state: FS
 
     for emp in employees:
         # Берём ФИО/отдел, если оно есть
-        name_field = emp.get("Name/Department", "")
+        name_field = emp.get(search_type, "")
         if not name_field:
             continue
 
@@ -233,56 +236,90 @@ def format_employee_text(emp: Dict) -> str:
 
 # Обработчик выбора "Искать по отделу"
 @router.message(StateFilter(SearchState.waiting_for_search_type), F.text == BTN_DEPARTMENT_SEARCH)
-async def handle_department_search(message: Message, state: FSMContext):
+async def handle_department_search(message: types.Message, state: FSMContext):
     """Обрабатывает выбор поиска по отделу"""
     try:
-        # Убираем клавиатуру выбора и просим ввести отдел
+        # Убираем клавиатуру выбора (ReplyKeyboard) и просим выбрать отдел
         await message.answer(
-            "Укажите пожалуйста, название отдела.",
+            "Выберите, пожалуйста, отдел ⬇️",
             reply_markup=ReplyKeyboardRemove()
         )
+
+        # Создаём инлайн-клавиатуру с отделами
+        keyboard = await _create_department_keyboard()
 
         # Устанавливаем состояние ожидания ввода отдела
         await state.set_state(SearchState.waiting_for_department_search)
 
+        # Отправляем инлайн-клавиатуру пользователю
+        await message.answer("Список отделов:", reply_markup=keyboard)
+
     except Exception as e:
         logger.error(f"Department search error: {str(e)}", exc_info=True)
-        await message.answer("Ошибка при выборе поиска по отделу")
+        await message.answer("Ошибка при выборе поиска телефонов по отделу")
+
+
+async def _create_department_keyboard() -> InlineKeyboardMarkup:
+    """
+    Создает клавиатуру со списком доступных отделов, по которым можно получить телефоны.
+    Кнопки выводятся по 2 в строку.
+    """
+    # Получаем из справочника список отделов
+    department_list = await get_department_list()
+
+    inline_keyboard = []
+
+    # Группируем по 2 кнопки в ряд
+    row = []
+    for i, department in enumerate(department_list, start=1):
+        row.append(InlineKeyboardButton(
+            text=department,
+            callback_data=f"department:{department}"
+        ))
+        if i % 2 == 0:  # каждые 2 кнопки — новая строка
+            inline_keyboard.append(row)
+            row = []
+
+    # если осталось "хвостиком" одна кнопка — добавляем её в отдельной строке
+    if row:
+        inline_keyboard.append(row)
+
+    # Добавляем кнопку "Назад"
+    inline_keyboard.append([InlineKeyboardButton(
+        text="⬅️ Назад",
+        callback_data="back"
+    )])
+
+    return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
 # Обработчик ввода отдела
-@router.message(StateFilter(SearchState.waiting_for_department_search))
-async def process_department_input(message: Message, state: FSMContext):
+@router.callback_query(lambda c: c.data.startswith('department:'))
+async def process_department_input(callback_query: types.CallbackQuery, state: FSMContext):
     """Обрабатывает ввод отдела для поиска"""
     try:
-        department = message.text.strip()
+        # Убираем "часики" на кнопке
+        await callback_query.answer()
 
-        # Если пустой запрос
-        if not department:
-            await message.answer("Пожалуйста, введите название отдела:")
-            return
+        # Извлекаем выбранное значение (без префикса department:)
+        search_query = callback_query.data.replace("department:", "")
+        logger.info(f"Поиск телефонов по отделу: {search_query}")
 
-        logger.info(f"Поиск по отделу: {department}")
+        # Убираем инлайн-клавиатуру с отделами
+        await callback_query.message.edit_reply_markup(reply_markup=None)
 
-        # Здесь будет ваша функция поиска по отделу
-        # employees = await get_employee_by_department(department)
+        # Получаем данные сотрудников
+        employees = await get_employees()
 
-        # Временно: заглушка для тестирования
-        await message.answer(f"🏢 Ищем сотрудников в отделе: {department}")
+        # Фильтруем по отделу
+        searched_employees = await give_employee_data("Department", search_query, employees, state)
 
-        # После поиска показываем результаты и кнопку Назад
-        # await give_employee_data(message, employees, state)
-
-        # Пока просто возвращаем к выбору типа поиска
-        await message.answer(
-            "Поиск завершен. Как вы хотите найти сотрудника?",
-            reply_markup=search_kb
-        )
-        await state.set_state(SearchState.waiting_for_search_type)
+        # Показываем результат поиска
+        await show_employee(searched_employees, callback_query.message, state)
 
     except Exception as e:
         logger.error(f"Department input processing error: {str(e)}", exc_info=True)
-        await message.answer("Ошибка при обработке запроса")
+        await callback_query.message.answer("Ошибка при обработке запроса телефонов отдела")
 
 
 # Обработчик кнопки "Назад" из состояния выбора типа поиска
