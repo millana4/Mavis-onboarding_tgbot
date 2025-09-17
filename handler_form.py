@@ -10,6 +10,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
+from cache_access import check_user_access, RESTRICTING_MESSAGE
 from config import Config
 from handlers import Navigation
 from seatable_api_forms import save_form_answers
@@ -43,6 +44,18 @@ def _is_form(table_data: List[Dict]) -> bool:
 async def _process_form(table_data: List[Dict], message: Message, state: FSMContext) -> Tuple[Dict, None]:
     """Обрабатывает данные формы"""
     logger.info("Начало обработки формы обратной связи")
+
+    # Проверяем права доступа
+    if not await check_user_access(message.chat.id):
+        await message.answer(
+            RESTRICTING_MESSAGE,
+            reply_markup=types.ReplyKeyboardRemove()
+        )
+        logger.info(f"У пользователя {message.chat.id} больше нет доступа. Запрещено в process_form")
+        return {"text": ""}, None
+    else:
+        logger.info(f"Доступ пользователя {message.chat.id} подтвержден")
+
 
     info_row = next((row for row in table_data if row.get('Name') == 'Info'), None)
 

@@ -1,0 +1,88 @@
+from cachetools import TTLCache
+import logging
+from typing import Optional
+from aiogram import types
+from aiogram.fsm.context import FSMContext
+
+from config import Config
+from seatable_api_base import fetch_table
+from seatable_api_authorization import check_id_telegram
+
+logger = logging.getLogger(__name__)
+
+# Кэш для хранения статуса пользователей (1 час TTL, до 2000 пользователей)
+user_access_cache = TTLCache(maxsize=2000, ttl=3600)
+
+# Сообщение для пользователя, который потерял доступ из-за увольнения
+RESTRICTING_MESSAGE = "🚫 Извините, у вас больше нет доступа. Чтобы вернуть доступ, обратитесь, пожалуйста, к администратору."
+
+
+async def check_user_access(user_id: int) -> bool:
+    """
+    Проверяет права доступа пользователя с использованием кэширования.
+    Возвращает True если доступ разрешен, False если запрещен.
+    """
+    # Проверяем кэш
+    if user_id in user_access_cache:
+        logger.debug(f"Cache hit for user {user_id}")
+        return user_access_cache[user_id]
+
+    # Если нет в кэше - проверяем через API
+    logger.debug(f"Cache miss for user {user_id}, checking via API...")
+    try:
+        has_access = await check_id_telegram(str(user_id))
+        user_access_cache[user_id] = has_access
+        return has_access
+    except Exception as e:
+        logger.error(f"Error checking user access for {user_id}: {str(e)}")
+        return False
+
+
+async def require_access_decorator(func):
+    """
+    Декоратор для проверки прав доступа перед выполнением функции.
+    """
+
+    async def wrapper(message: types.Message, state: FSMContext, *args, **kwargs):
+        user_id = message.from_user.id
+
+        if not await check_user_access(user_id):
+            await message.answer(
+                "🚫 Извините, у вас больше нет доступа. Обратитесь, пожалуйста, к администратору системы.",
+                reply_markup=types.ReplyKeyboardRemove()
+            )
+            return
+
+        # Если доступ есть, выполняем оригинальную функцию
+        return await func(message, state, *args, **kwargs)
+
+    return wrapper
+
+
+async def invalidate_user_cache(user_id: int):
+    """
+    Удаляет пользователя из кэша (например, при изменении его статуса)
+    """
+    if user_id in user_access_cache:
+        del user_access_cache[user_id]
+        logger.info(f"User {user_id} invalidated from cache")
+
+
+async def clear_all_access_cache():
+    """
+    Очищает весь кэш прав доступа
+    """
+    user_access_cache.clear()
+    logger.info("All access cache cleared")
+
+
+# Утилиты для работы с кэшем
+def get_cache_stats() -> dict:
+    """
+    Возвращает статистику кэша
+    """
+    return {
+        'currsize': user_access_cache.currsize,
+        'maxsize': user_access_cache.maxsize,
+        'ttl': user_access_cache.ttl
+    }

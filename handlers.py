@@ -3,6 +3,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import ReplyKeyboardRemove
 
+from cache_access import check_user_access, RESTRICTING_MESSAGE
 from config import Config
 from keyboards import share_contact_kb
 from models import Navigation
@@ -33,7 +34,7 @@ async def cmd_start(message: types.Message, state: FSMContext):  # <- Добав
     else:
         # Иначе просим поделиться контактом
         await message.answer(
-            "Поделитесь, пожалуйста, вашим контактом — номером телефона, чтобы авторизоваться в системе.",
+            RESTRICTING_MESSAGE,
             reply_markup=share_contact_kb,
         )
 
@@ -67,6 +68,17 @@ async def handle_contact(message: types.Message, state: FSMContext):  # <- До�
 async def start_navigation(message: types.Message, state: FSMContext):
     """Инициализирует FSM и показывает главное меню"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(message.chat.id):
+            await message.answer(
+                RESTRICTING_MESSAGE,
+                reply_markup=ReplyKeyboardRemove()
+            )
+            logger.info(f"У пользователя {message.chat.id} больше нет доступа. Запрещено в start_navigation")
+            return
+        else:
+            logger.info(f"Доступ пользователя {message.chat.id} подтвержден")
+
         # Инициализируем состояние навигации
         await state.update_data(
             current_menu=Config.SEATABLE_MAIN_MENU_ID,
@@ -118,6 +130,18 @@ async def start_navigation(message: types.Message, state: FSMContext):
 async def process_back_callback(callback_query: types.CallbackQuery, state: FSMContext):
     """Обработчик кнопки 'Назад'"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(callback_query.from_user.id):
+            await callback_query.answer(
+                RESTRICTING_MESSAGE,
+                show_alert=True
+            )
+            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_back_callback")
+            return
+        else:
+            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+
+
         data = await state.get_data()
         navigation_history = data.get('navigation_history', [])
 

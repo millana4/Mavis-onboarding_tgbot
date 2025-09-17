@@ -5,6 +5,7 @@ from aiogram import Router, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from aiogram.fsm.context import FSMContext
 
+from cache_access import check_user_access, RESTRICTING_MESSAGE
 from config import Config
 from handler_form import _process_form, _is_form
 from seatable_api_base import fetch_table
@@ -113,6 +114,17 @@ async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str) -
 async def process_menu_callback(callback_query: types.CallbackQuery, state: FSMContext):
     """Обработчик перехода между меню"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(callback_query.from_user.id):
+            await callback_query.answer(
+                RESTRICTING_MESSAGE,
+                show_alert=True
+            )
+            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_menu_callback")
+            return
+        else:
+            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+
         # Получаем и обновляем состояние
         data = await state.get_data()
         navigation_history = data.get('navigation_history', [Config.SEATABLE_MAIN_MENU_ID])
@@ -167,6 +179,17 @@ async def process_menu_callback(callback_query: types.CallbackQuery, state: FSMC
 async def process_content_callback(callback_query: types.CallbackQuery, state: FSMContext):
     """Обработчик контентных кнопок (постит в чат)"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(callback_query.from_user.id):
+            await callback_query.answer(
+                RESTRICTING_MESSAGE,
+                show_alert=True
+            )
+            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_content_callback")
+            return
+        else:
+            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+
         # Получаем параметры контента
         _, table_id, row_id = callback_query.data.split(':')
 

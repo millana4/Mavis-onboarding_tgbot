@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 async def check_id_telegram(id_telegram: str) -> bool:
     """
+    Функция для регистрации и получения доступа, а также для переподтверждения прав доступа и записи в кеш.
     Проверяет наличие telegram_id в таблице Users.
     Возвращает True если пользователь найден, False если нет.
     """
@@ -65,7 +66,10 @@ async def check_id_telegram(id_telegram: str) -> bool:
 
 
 async def register_id_telegram(phone: str, id_telegram: str) -> bool:
-    """Обращается по API к Seatable, ищет там пользователя по телефону и записывает его id_telegram."""
+    """
+    Функция для регистрации и получения доступа.
+    Обращается по API к Seatable, ищет там пользователя по телефону и записывает его id_telegram.
+    """
     try:
         # Получаем токен
         token_data = await get_base_token()
@@ -148,4 +152,45 @@ async def register_id_telegram(phone: str, id_telegram: str) -> bool:
 
     except Exception as e:
         logger.error(f"Критическая ошибка: {str(e)}", exc_info=True)
+        return False
+
+
+async def fetch_user_by_telegram_id(id_telegram: str) -> bool:
+    """
+    Функция для подтверждения прав доступа, когда пользователь запрашивает какой-либо контент.
+    Проверяет по API SeaTable наличие пользователя с таким telegram_id.
+    Возвращает True если есть, False если нет.
+    """
+    try:
+        token_data = await get_base_token()
+        if not token_data:
+            logger.error("Не удалось получить токен SeaTable")
+            return False
+
+        base_url = f"{token_data['dtable_server']}api/v1/dtables/{token_data['dtable_uuid']}/rows/"
+        headers = {
+            "Authorization": f"Bearer {token_data['access_token']}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        params = {"table_id": Config.SEATABLE_USERS_TABLE_ID}
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(base_url, headers=headers, params=params) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Ошибка API при проверке прав: {response.status}. Ответ: {error_text}")
+                    return False
+
+                data = await response.json()
+                for row in data.get("rows", []):
+                    if str(row.get("ID_telegram")) == str(id_telegram):
+                        logger.info(f"[Auth] Найден пользователь с id_telegram {id_telegram}")
+                        return True
+
+                logger.info(f"[Auth] Пользователь с id_telegram {id_telegram} не найден")
+                return False
+
+    except Exception as e:
+        logger.error(f"[Auth] Ошибка при обращении к API: {str(e)}", exc_info=True)
         return False

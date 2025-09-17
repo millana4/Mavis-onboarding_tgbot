@@ -6,6 +6,7 @@ from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, In
 from aiogram.filters import StateFilter
 from typing import List, Dict, Optional
 
+from cache_access import check_user_access, RESTRICTING_MESSAGE
 from config import Config
 from models import SearchState
 from handlers import start_navigation
@@ -21,6 +22,17 @@ logger = logging.getLogger(__name__)
 async def process_ats_callback(callback_query: types.CallbackQuery, state: FSMContext):
     """Обрабатывает нажатие на кнопку со справочником"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(callback_query.from_user.id):
+            await callback_query.answer(
+                RESTRICTING_MESSAGE,
+                show_alert=True
+            )
+            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_ats_callback")
+            return
+        else:
+            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+
         # Получаем и обновляем состояние
         data = await state.get_data()
         navigation_history = data.get('navigation_history', [Config.SEATABLE_MAIN_MENU_ID])
@@ -60,6 +72,17 @@ async def process_ats_callback(callback_query: types.CallbackQuery, state: FSMCo
 async def handle_name_search(message: Message, state: FSMContext):
     """Обрабатывает выбор поиска по ФИО"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(message.from_user.id):
+            await message.answer(
+                RESTRICTING_MESSAGE,
+                reply_markup=ReplyKeyboardRemove()
+            )
+            logger.info(f"У пользователя {message.from_user.id} больше нет доступа. Запрещено в handle_name_search")
+            return
+        else:
+            logger.info(f"Доступ пользователя {message.from_user.id} подтвержден")
+
         # Убираем клавиатуру выбора и просим ввести ФИО
         await message.answer(
             "Укажите, пожалуйста, фамилию и/или полное имя сотрудника, например: Иван Соколов или Соколов Иван, "
@@ -80,6 +103,17 @@ async def handle_name_search(message: Message, state: FSMContext):
 async def process_name_input(message: Message, state: FSMContext):
     """Обрабатывает ввод ФИО для поиска"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(message.from_user.id):
+            await message.answer(
+                RESTRICTING_MESSAGE,
+                reply_markup=ReplyKeyboardRemove()
+            )
+            logger.info(f"У пользователя {message.from_user.id} больше нет доступа. Запрещено в process_name_input")
+            return
+        else:
+            logger.info(f"Доступ пользователя {message.from_user.id} подтвержден")
+
         search_query = message.text.strip()
 
         # Если пустой запрос
@@ -93,10 +127,10 @@ async def process_name_input(message: Message, state: FSMContext):
         employees = await get_employees()
 
         # После поиска показываем результаты и кнопку Назад
-        searched_emloyees = await give_employee_data("Name/Department", search_query, employees, state)
+        searched_employees = await give_employee_data("Name/Department", search_query, employees, state)
 
         # Выводит сообщение с результатами поиска и показывает его, пока пользователь не нажмет Назад
-        await show_employee(searched_emloyees, message, state)
+        await show_employee(searched_employees, message, state)
 
     except Exception as e:
         logger.error(f"Name input processing error: {str(e)}", exc_info=True)
@@ -239,6 +273,17 @@ def format_employee_text(emp: Dict) -> str:
 async def handle_department_search(message: types.Message, state: FSMContext):
     """Обрабатывает выбор поиска по отделу"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(message.from_user.id):
+            await message.answer(
+                RESTRICTING_MESSAGE,
+                reply_markup=ReplyKeyboardRemove()
+            )
+            logger.info(f"У пользователя {message.from_user.id} больше нет доступа. Запрещено в handle_department_search")
+            return
+        else:
+            logger.info(f"Доступ пользователя {message.from_user.id} подтвержден")
+
         # Убираем клавиатуру выбора (ReplyKeyboard) и просим выбрать отдел
         await message.answer(
             "Выберите, пожалуйста, отдел ⬇️",
@@ -298,6 +343,17 @@ async def _create_department_keyboard() -> InlineKeyboardMarkup:
 async def process_department_input(callback_query: types.CallbackQuery, state: FSMContext):
     """Обрабатывает ввод отдела для поиска"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(callback_query.from_user.id):
+            await callback_query.answer(
+                RESTRICTING_MESSAGE,
+                show_alert=True
+            )
+            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_department_input")
+            return
+        else:
+            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+
         # Убираем "часики" на кнопке
         await callback_query.answer()
 
@@ -327,7 +383,18 @@ async def process_department_input(callback_query: types.CallbackQuery, state: F
 async def handle_back_from_search(message: Message, state: FSMContext):
     """Обрабатывает кнопку Назад из режима поиска"""
     try:
-        logger.info(f"Обработка кнопки Назад для пользователя {message.from_user.id}")
+        # Проверяем права доступа
+        if not await check_user_access(message.chat.id):
+            await message.answer(
+                RESTRICTING_MESSAGE,
+                reply_markup=ReplyKeyboardRemove()
+            )
+            logger.info(f"У пользователя {message.chat.id} больше нет доступа. Запрещено в handle_back_from_search")
+            return
+        else:
+            logger.info(f"Доступ пользователя {message.chat.id} подтвержден")
+
+        logger.info(f"Обработка кнопки Назад для пользователя {message.chat.id}")
 
         # Убираем клавиатуру
         await message.answer(
@@ -351,6 +418,17 @@ async def handle_back_from_search(message: Message, state: FSMContext):
 async def handle_search_back(callback: types.CallbackQuery, state: FSMContext):
     """Обрабатывает кнопку Назад из результатов поиска — возвращает в главное меню"""
     try:
+        # Проверяем права доступа
+        if not await check_user_access(callback.from_user.id):
+            await callback.answer(
+                RESTRICTING_MESSAGE,
+                show_alert=True
+            )
+            logger.info(f"У пользователя {callback.from_user.id} больше нет доступа. Запрещено в handle_search_back")
+            return
+        else:
+            logger.info(f"Доступ пользователя {callback.from_user.id} подтвержден")
+
         logger.info(f"Обработка кнопки Назад (inline) для пользователя {callback.from_user.id}")
 
         # Удаляем сообщение с результатами
