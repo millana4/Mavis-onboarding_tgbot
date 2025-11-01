@@ -3,27 +3,28 @@ import logging
 from typing import List, Dict, Optional, Tuple
 from aiogram import Router, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
-from aiogram.fsm.context import FSMContext
 
-from cache_access import check_user_access, RESTRICTING_MESSAGE
+from app.services.fsm import state_manager
 from config import Config
-from handler_form import _process_form, _is_form
-from seatable_api_base import fetch_table
-from utils import prepare_telegram_message, download_and_send_file
+from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
+from app.seatable_api.api_base import fetch_table
+from telegram.handlers.handler_form import _process_form, _is_form
+from telegram.utils import prepare_telegram_message
+from utils import download_and_send_file
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 
 async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
-                          message: Message = None,
-                          state: FSMContext = None) -> Tuple[Dict, InlineKeyboardMarkup]:
+                          message: Message = None) -> Tuple[Dict, InlineKeyboardMarkup]:
     """
     Обрабатывает данные таблицы и создает Telegram-сообщение с меню или формой
     """
     logger.info(f"Начало обработки меню для table_id={table_id}")
 
     table_data = await fetch_table(table_id)
+
     if not table_data:
         logger.warning(f"Не удалось загрузить данные для table_id={table_id}")
         return {"text": "Не удалось загрузить данные"}, None
@@ -31,13 +32,19 @@ async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
     # Ветвление — обрабатывается форма или обычное меню
     if _is_form(table_data):
         logger.info(f"Таблица {table_id} идентифицирована как форма")
-        if message and state:  # Проверяем наличие необходимых аргументов
-            return await _process_form(table_data, message, state)
+        if message:
+            try:
+                return await _process_form(table_data, message)
+            except Exception as e:
+                logger.error(f"Ошибка инициализации формы: {e}")
+                return {"text": "Ошибка инициализации формы"}, None
         else:
-            logger.error("Для работы формы требуется message и state")
+            logger.error("Для работы формы требуется message")
             return {"text": "Ошибка инициализации формы"}, None
+
     else:
         logger.info(f"Таблица {table_id} - обычное меню")
+
         # Логика обработки меню
         content_part = await _process_content_part(table_data)
         keyboard = await _create_menu_keyboard(table_data, table_id)

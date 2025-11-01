@@ -1,9 +1,8 @@
-import pprint
 import logging
-from typing import List, Dict, Optional
-from aiogram.client.session import aiohttp
+import aiohttp
+from typing import Dict, Optional
 
-from seatable_api_base import get_base_token
+from app.seatable_api.api_base import get_base_token
 
 logger = logging.getLogger(__name__)
 

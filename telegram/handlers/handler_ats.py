@@ -4,14 +4,14 @@ from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import StateFilter
-from typing import List, Dict, Optional
+from typing import List, Dict
 
-from cache_access import check_user_access, RESTRICTING_MESSAGE
+from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
 from config import Config
-from models import SearchState
-from handlers import start_navigation
-from keyboards import search_kb, BTN_DEPARTMENT_SEARCH, BTN_EMPLOYEE_SEARCH, BTN_BACK
-from seatable_api_ats import get_employees, get_department_list
+from app.services.fsm import SearchState
+from telegram.handlers.handler_base import start_navigation
+from telegram.keyboards import search_kb, BTN_DEPARTMENT_SEARCH, BTN_EMPLOYEE_SEARCH, BTN_BACK
+from app.seatable_api.api_ats import get_employees, get_department_list
 
 router = Router()
 logger = logging.getLogger(__name__)

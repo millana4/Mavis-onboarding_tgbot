@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import pprint
 
 from aiogram import Router, types
 from aiogram.types import Message
@@ -10,10 +9,10 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
-from cache_access import check_user_access, RESTRICTING_MESSAGE
+from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
 from config import Config
-from handlers import Navigation
-from seatable_api_forms import save_form_answers
+from telegram.handlers.handler_base import Navigation
+from app.seatable_api.api_forms import save_form_answers
 from utils import prepare_telegram_message
 
 

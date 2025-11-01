@@ -1,18 +1,17 @@
-import logging
 import pprint
-
-from aiogram.client.session import aiohttp
+import logging
+import aiohttp
 
 from config import Config
-from seatable_api_base import get_base_token
+from app.seatable_api.api_base import get_base_token
 from utils import normalize_phone
 
 logger = logging.getLogger(__name__)
 
-async def check_id_telegram(id_telegram: str) -> bool:
+async def check_id_messanger(id_messanger: str) -> bool:
     """
     Функция для регистрации и получения доступа, а также для переподтверждения прав доступа и записи в кеш.
-    Проверяет наличие telegram_id в таблице Users.
+    Проверяет наличие ID_messanger в таблице Users.
     Возвращает True если пользователь найден, False если нет.
     """
     try:
@@ -51,13 +50,13 @@ async def check_id_telegram(id_telegram: str) -> bool:
                     ]
                 """
 
-                # Ищем пользователя с совпадающим id_telegram
+                # Ищем пользователя с совпадающим id_messanger
                 for row in data.get("rows", []):
-                    if str(row.get("ID_telegram")) == str(id_telegram):
-                        logger.info(f"Найден пользователь с id_telegram: {id_telegram}")
+                    if str(row.get("ID_messanger")) == str(id_messanger):
+                        logger.info(f"Найден пользователь с ID_messanger: {id_messanger}")
                         return True
 
-                logger.info(f"Пользователь с id_telegram {id_telegram} не найден")
+                logger.info(f"Пользователь с ID_messanger {id_messanger} не найден")
                 return False
 
     except Exception as e:
@@ -65,10 +64,10 @@ async def check_id_telegram(id_telegram: str) -> bool:
         return False
 
 
-async def register_id_telegram(phone: str, id_telegram: str) -> bool:
+async def register_id_messanger(phone: str, id_messanger: str) -> bool:
     """
     Функция для регистрации и получения доступа.
-    Обращается по API к Seatable, ищет там пользователя по телефону и записывает его id_telegram.
+    Обращается по API к Seatable, ищет там пользователя по телефону и записывает его id_messanger.
     """
     try:
         # Получаем токен
@@ -86,7 +85,7 @@ async def register_id_telegram(phone: str, id_telegram: str) -> bool:
 
         # Используем человекочитаемые названия колонок, а не их внутренние ключи
         phone_column = "Phone"  # Колонка с телефонами
-        id_telegram_column = "ID_telegram"  # Колонка для id_telegram
+        id_messanger_column = "ID_messanger"  # Колонка для id_messanger
 
         # Получаем параметры
         params = {
@@ -137,7 +136,7 @@ async def register_id_telegram(phone: str, id_telegram: str) -> bool:
                     "table_id": Config.SEATABLE_USERS_TABLE_ID,
                     "row_id": row_id,
                     "row": {
-                        id_telegram_column: str(id_telegram)
+                        id_messanger_column: str(id_messanger)
                     }
                 }
 
@@ -147,50 +146,9 @@ async def register_id_telegram(phone: str, id_telegram: str) -> bool:
                         logger.error(f"Ошибка обновления: {resp.status} - {await resp.text()}")
                         return False
 
-                    logger.info(f"ID Telegram успешно добавлен для пользователя с телефоном {phone}")
+                    logger.info(f"ID_messanger успешно добавлен для пользователя с телефоном {phone}")
                     return True
 
     except Exception as e:
         logger.error(f"Критическая ошибка: {str(e)}", exc_info=True)
-        return False
-
-
-async def fetch_user_by_telegram_id(id_telegram: str) -> bool:
-    """
-    Функция для подтверждения прав доступа, когда пользователь запрашивает какой-либо контент.
-    Проверяет по API SeaTable наличие пользователя с таким telegram_id.
-    Возвращает True если есть, False если нет.
-    """
-    try:
-        token_data = await get_base_token()
-        if not token_data:
-            logger.error("Не удалось получить токен SeaTable")
-            return False
-
-        base_url = f"{token_data['dtable_server']}api/v1/dtables/{token_data['dtable_uuid']}/rows/"
-        headers = {
-            "Authorization": f"Bearer {token_data['access_token']}",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
-        params = {"table_id": Config.SEATABLE_USERS_TABLE_ID}
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(base_url, headers=headers, params=params) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Ошибка API при проверке прав: {response.status}. Ответ: {error_text}")
-                    return False
-
-                data = await response.json()
-                for row in data.get("rows", []):
-                    if str(row.get("ID_telegram")) == str(id_telegram):
-                        logger.info(f"[Auth] Найден пользователь с id_telegram {id_telegram}")
-                        return True
-
-                logger.info(f"[Auth] Пользователь с id_telegram {id_telegram} не найден")
-                return False
-
-    except Exception as e:
-        logger.error(f"[Auth] Ошибка при обращении к API: {str(e)}", exc_info=True)
         return False

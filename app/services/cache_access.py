@@ -1,12 +1,8 @@
-from cachetools import TTLCache
 import logging
-from typing import Optional
+from cachetools import TTLCache
 from aiogram import types
-from aiogram.fsm.context import FSMContext
 
-from config import Config
-from seatable_api_base import fetch_table
-from seatable_api_authorization import check_id_telegram
+from app.seatable_api.api_auth import check_id_messenger
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +26,7 @@ async def check_user_access(user_id: int) -> bool:
     # Если нет в кэше - проверяем через API
     logger.debug(f"Cache miss for user {user_id}, checking via API...")
     try:
-        has_access = await check_id_telegram(str(user_id))
+        has_access = await check_id_messenger(str(user_id))
         user_access_cache[user_id] = has_access
         return has_access
     except Exception as e:
@@ -43,7 +39,7 @@ async def require_access_decorator(func):
     Декоратор для проверки прав доступа перед выполнением функции.
     """
 
-    async def wrapper(message: types.Message, state: FSMContext, *args, **kwargs):
+    async def wrapper(message: types.Message, *args, **kwargs):
         user_id = message.from_user.id
 
         if not await check_user_access(user_id):
@@ -54,35 +50,7 @@ async def require_access_decorator(func):
             return
 
         # Если доступ есть, выполняем оригинальную функцию
-        return await func(message, state, *args, **kwargs)
+        return await func(message, *args, **kwargs)
 
     return wrapper
 
-
-async def invalidate_user_cache(user_id: int):
-    """
-    Удаляет пользователя из кэша (например, при изменении его статуса)
-    """
-    if user_id in user_access_cache:
-        del user_access_cache[user_id]
-        logger.info(f"User {user_id} invalidated from cache")
-
-
-async def clear_all_access_cache():
-    """
-    Очищает весь кэш прав доступа
-    """
-    user_access_cache.clear()
-    logger.info("All access cache cleared")
-
-
-# Утилиты для работы с кэшем
-def get_cache_stats() -> dict:
-    """
-    Возвращает статистику кэша
-    """
-    return {
-        'currsize': user_access_cache.currsize,
-        'maxsize': user_access_cache.maxsize,
-        'ttl': user_access_cache.ttl
-    }
