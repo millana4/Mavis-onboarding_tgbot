@@ -8,7 +8,6 @@ from typing import List, Dict
 
 from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
 from config import Config
-from app.services.fsm import SearchState
 from telegram.handlers.handler_base import start_navigation
 from telegram.keyboards import search_kb, BTN_DEPARTMENT_SEARCH, BTN_EMPLOYEE_SEARCH, BTN_BACK
 from app.seatable_api.api_ats import get_employees, get_department_list

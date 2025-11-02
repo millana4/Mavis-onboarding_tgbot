@@ -2,7 +2,7 @@ import logging
 from cachetools import TTLCache
 from aiogram import types
 
-from app.seatable_api.api_auth import check_id_messenger
+from app.seatable_api.api_auth import check_id_messanger
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ async def check_user_access(user_id: int) -> bool:
     # Если нет в кэше - проверяем через API
     logger.debug(f"Cache miss for user {user_id}, checking via API...")
     try:
-        has_access = await check_id_messenger(str(user_id))
+        has_access = await check_id_messanger(str(user_id))
         user_access_cache[user_id] = has_access
         return has_access
     except Exception as e:

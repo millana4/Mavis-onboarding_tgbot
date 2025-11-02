@@ -4,17 +4,19 @@ from typing import List, Dict, Optional, Tuple
 from aiogram import Router, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
-from app.services.fsm import state_manager
+from app.services.navigation import process_content_part
 from config import Config
+from app.services.fsm import state_manager
 from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
 from app.seatable_api.api_base import fetch_table
-from telegram.handlers.handler_form import _process_form, _is_form
+from app.services.forms import is_form
+from telegram.handlers.handler_form import process_form
+from telegram.handlers.handler_base import check_access
 from telegram.utils import prepare_telegram_message
 from utils import download_and_send_file
 
 router = Router()
 logger = logging.getLogger(__name__)
-
 
 async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
                           message: Message = None) -> Tuple[Dict, InlineKeyboardMarkup]:
@@ -30,24 +32,21 @@ async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
         return {"text": "Не удалось загрузить данные"}, None
 
     # Ветвление — обрабатывается форма или обычное меню
-    if _is_form(table_data):
+    if is_form(table_data):
+
         logger.info(f"Таблица {table_id} идентифицирована как форма")
         if message:
-            try:
-                return await _process_form(table_data, message)
-            except Exception as e:
-                logger.error(f"Ошибка инициализации формы: {e}")
-                return {"text": "Ошибка инициализации формы"}, None
+            return await process_form(table_data, message)
         else:
-            logger.error("Для работы формы требуется message")
+            logger.error(f"Ошибка инициализации формы")
             return {"text": "Ошибка инициализации формы"}, None
 
     else:
+        # Логика обработки меню
         logger.info(f"Таблица {table_id} - обычное меню")
 
-        # Логика обработки меню
-        content_part = await _process_content_part(table_data)
-        keyboard = await _create_menu_keyboard(table_data, table_id)
+        content_part = await process_content_part(table_data)
+        keyboard = await create_menu_keyboard(table_data, table_id)
 
         if 'parse_mode' not in content_part:
             content_part['parse_mode'] = 'HTML'
@@ -58,21 +57,7 @@ async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
 
         return content_part, keyboard
 
-
-async def _process_content_part(table_data: List[Dict]) -> Dict:
-    """Обрабатывает контентную часть (Info)"""
-    logger.info("Поиск контентной части (Info) в данных таблицы")
-
-    for row in table_data:
-        if row.get('Name') == 'Info' and row.get('Content'):
-            logger.info("Найдена строка с контентом (Info)")
-            return prepare_telegram_message(row['Content'])
-
-    logger.info("Строка с контентом (Info) не найдена")
-    return {"text": ""}
-
-
-async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str) -> InlineKeyboardMarkup:
+async def create_menu_keyboard(table_data: List[Dict], current_table_id: str) -> InlineKeyboardMarkup:
     """Создает инлайн-клавиатуру с кнопками"""
     inline_keyboard = []
 
@@ -118,32 +103,20 @@ async def _create_menu_keyboard(table_data: List[Dict], current_table_id: str) -
 
 # Хендлер для кнопок меню
 @router.callback_query(lambda c: c.data.startswith('menu:'))
-async def process_menu_callback(callback_query: types.CallbackQuery, state: FSMContext):
+async def process_menu_callback(callback_query: types.CallbackQuery):
     """Обработчик перехода между меню"""
     try:
+        user_id = callback_query.from_user.id
+
         # Проверяем права доступа
-        if not await check_user_access(callback_query.from_user.id):
-            await callback_query.answer(
-                RESTRICTING_MESSAGE,
-                show_alert=True
-            )
-            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_menu_callback")
-            return
-        else:
-            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+        await check_access(callback_query)
 
         # Получаем и обновляем состояние
-        data = await state.get_data()
-        navigation_history = data.get('navigation_history', [Config.SEATABLE_MAIN_MENU_ID])
         new_table_id = callback_query.data.split(':')[1]
-
-        navigation_history.append(new_table_id, )
-        await state.update_data(
-            current_menu=new_table_id,
-            navigation_history=navigation_history
-        )
+        await state_manager.navigate_to_menu(user_id, new_table_id)
 
         # Получаем данные меню
+        state = state_manager.get_current_menu(user_id)
         content, keyboard = await handle_table_menu(
             new_table_id,
             message=callback_query.message,
@@ -183,28 +156,20 @@ async def process_menu_callback(callback_query: types.CallbackQuery, state: FSMC
 
 
 @router.callback_query(lambda c: c.data.startswith('content:'))
-async def process_content_callback(callback_query: types.CallbackQuery, state: FSMContext):
+async def process_content_callback(callback_query: types.CallbackQuery):
     """Обработчик контентных кнопок (постит в чат)"""
     try:
+        user_id = callback_query.from_user.id
+
         # Проверяем права доступа
-        if not await check_user_access(callback_query.from_user.id):
-            await callback_query.answer(
-                RESTRICTING_MESSAGE,
-                show_alert=True
-            )
-            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_content_callback")
-            return
-        else:
-            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+        await check_access(callback_query)
 
         # Получаем параметры контента
         _, table_id, row_id = callback_query.data.split(':')
+        content_key = f"content:{table_id}:{row_id}"
 
         # Обновляем историю
-        data = await state.get_data()
-        navigation_history = data.get('navigation_history', [])
-        navigation_history.append(f"content:{table_id}:{row_id}")
-        await state.update_data(navigation_history=navigation_history)
+        await state_manager.navigate_to_menu(user_id, content_key)
 
         # Получаем данные контента
         table_data = await fetch_table(table_id)

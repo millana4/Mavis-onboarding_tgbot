@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from aiogram import Router, types
+from aiogram import Router, types, F
 from aiogram.types import Message
 from aiogram.filters import StateFilter
 from typing import List, Dict, Optional, Tuple
@@ -10,51 +10,24 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
 from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
+from app.services.forms import start_form_questions, complete_form
+from app.services.fsm import state_manager
 from config import Config
-from telegram.handlers.handler_base import Navigation
 from app.seatable_api.api_forms import save_form_answers
-from utils import prepare_telegram_message
+from telegram.handlers.handler_base import check_access
+from telegram.utils import prepare_telegram_message
 
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 
-def _is_form(table_data: List[Dict]) -> bool:
-    """Проверяет, является ли таблица формой"""
-    has_form_fields = False
-    for row in table_data:
-        # Если есть признаки меню - точно не форма
-        if any(field in row for field in ['Submenu_link', 'Button_content', 'External_link']):
-            return has_form_fields
-
-        # Проверяем признаки формы
-        if ('Free_input' in row) or any(key.startswith('Answer_option_') for key in row.keys()):
-            has_form_fields = True
-
-    # Answers_table проверяем только в строке Info
-    info_row = next((row for row in table_data if row.get('Name') == 'Info'), {})
-    if info_row.get('Answers_table'):
-        has_form_fields = True
-
-    return has_form_fields
-
-
-async def _process_form(table_data: List[Dict], message: Message, state: FSMContext) -> Tuple[Dict, None]:
+async def process_form(table_data: List[Dict], message: Message) -> Tuple[Dict, None]:
     """Обрабатывает данные формы"""
     logger.info("Начало обработки формы обратной связи")
 
     # Проверяем права доступа
-    if not await check_user_access(message.chat.id):
-        await message.answer(
-            RESTRICTING_MESSAGE,
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        logger.info(f"У пользователя {message.chat.id} больше нет доступа. Запрещено в process_form")
-        return {"text": ""}, None
-    else:
-        logger.info(f"Доступ пользователя {message.chat.id} подтвержден")
-
+    await check_access(message)
 
     info_row = next((row for row in table_data if row.get('Name') == 'Info'), None)
 
@@ -62,13 +35,13 @@ async def _process_form(table_data: List[Dict], message: Message, state: FSMCont
         logger.error("Форма не содержит строки с Name='Info'")
         return {"text": "Ошибка: форма не настроена правильно"}, None
 
-    # Инициализируем состояние формы
+    # Инициализируем состояние формы через state_manager
     form_data = await start_form_questions(message.from_user.id, table_data)
-    await state.set_data({
-        **await state.get_data(),
-        'form_data': form_data
-    })
-    await state.set_state(Navigation.form_data)
+    await state_manager.update_data(
+        message.from_user.id,
+        form_data=form_data,
+        current_state='form_data'  # устанавливаем состояние формы
+    )
 
     # Подготавливаем контент
     form_content = prepare_telegram_message(info_row.get('Content', ''))
@@ -91,28 +64,6 @@ async def _process_form(table_data: List[Dict], message: Message, state: FSMCont
     await ask_next_question(message, form_data)
 
     return {"text": ""}, None  # Возвращаем пустой словарь
-
-
-async def start_form_questions(user_id: int, table_data: List[Dict]) -> Dict:
-    """Инициализирует процесс опроса формы"""
-    questions = [row for row in table_data
-                if row.get('Name') not in ['Info', 'Final_message']]
-
-    # Безопасное получение answers_table (может быть None)
-    info_row = next((row for row in table_data if row.get('Name') == 'Info'), {})
-    answers_table = info_row.get('Answers_table')
-
-    # Безопасное получение final_message (может быть None)
-    final_row = next((row for row in table_data if row.get('Name') == 'Final_message'), {})
-    final_message = final_row.get('Content')
-
-    return {
-        "questions": questions,
-        "current_question": 0,
-        "answers": [],
-        "answers_table": answers_table,  # Может быть None
-        "final_message": final_message  # Может быть None
-    }
 
 
 async def get_form_question(form_state: Dict) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
@@ -139,18 +90,6 @@ async def get_form_question(form_state: Dict) -> Tuple[str, Optional[InlineKeybo
     return question_text, keyboard
 
 
-async def complete_form(form_state: Dict, user_id: int) -> Dict:
-    """Формирует финальные данные формы с корректным user_id"""
-    return {
-        "user_id": user_id,  # Используем переданный user_id (из message.chat.id)
-        "questions": form_state["questions"],  # Добавляем вопросы в результат
-        "answers": form_state["answers"],
-        "answers_table": form_state["answers_table"],
-        "final_message": form_state.get("final_message"),
-        "timestamp": datetime.now().isoformat()
-    }
-
-
 async def ask_next_question(message: Message, form_data: Dict):
     """Задает следующий вопрос формы"""
     question_text, keyboard = await get_form_question(form_data)
@@ -166,14 +105,17 @@ async def ask_next_question(message: Message, form_data: Dict):
     return sent_message
 
 
-@router.message(StateFilter(Navigation.form_data))
-async def handle_text_answer(message: types.Message, state: FSMContext):
+@router.message(F.text)
+async def handle_text_answer(message: types.Message):
     """Обрабатывает текстовые ответы в форме обратной связи"""
-    data = await state.get_data()
-    if 'form_data' not in data:
+    user_id = message.from_user.id
+
+    # Проверяем состояние через state_manager
+    user_data = await state_manager.get_data(user_id)
+    if user_data.get('current_state') != 'form_data' or 'form_data' not in user_data:
         return
 
-    form_data = data['form_data']
+    form_data = user_data['form_data']
     current_question = form_data['current_question']
 
     # Проверяем, ожидаем ли мы текстовый ответ
@@ -193,24 +135,29 @@ async def handle_text_answer(message: types.Message, state: FSMContext):
     # Сохраняем ответ
     form_data['answers'].append(message.text)
     form_data['current_question'] += 1
-    await state.update_data(form_data=form_data)
+
+    # Обновляем данные через state_manager
+    await state_manager.update_data(user_id, form_data=form_data)
 
     if form_data['current_question'] >= len(form_data['questions']):
-        await finish_form(message, form_data, state=state)
-        await state.update_data(form_data=None)
+        await finish_form(message, form_data)
+        await state_manager.update_data(user_id, form_data=None, current_state=None)
     else:
         await ask_next_question(message, form_data)
 
 
 @router.callback_query(lambda c: c.data.startswith('form_opt:'))
-async def handle_form_option(callback: types.CallbackQuery, state: FSMContext):
+async def handle_form_option(callback: types.CallbackQuery):
     """Обрабатывает выбор варианта в форме"""
-    data = await state.get_data()
-    if 'form_data' not in data:
+    user_id = callback.from_user.id
+
+    # Проверяем состояние через state_manager
+    user_data = await state_manager.get_data(user_id)
+    if user_data.get('current_state') != 'form_data' or 'form_data' not in user_data:
         await callback.answer()
         return
 
-    form_data = data['form_data']
+    form_data = user_data['form_data']
     answer = callback.data.split(':', 1)[1]
 
     # Отправляем выбранный ответ в чат
@@ -220,7 +167,9 @@ async def handle_form_option(callback: types.CallbackQuery, state: FSMContext):
     # Сохраняем ответ
     form_data['answers'].append(answer)
     form_data['current_question'] += 1
-    await state.update_data(form_data=form_data)
+
+    # Обновляем данные через state_manager
+    await state_manager.update_data(user_id, form_data=form_data)
 
     # Удаляем клавиатуру у вопроса
     try:
@@ -230,15 +179,17 @@ async def handle_form_option(callback: types.CallbackQuery, state: FSMContext):
 
     # Переходим к следующему вопросу или завершаем
     if form_data['current_question'] >= len(form_data['questions']):
-        await finish_form(callback.message, form_data, state=state)
-        await state.update_data(form_data=None)
+        await finish_form(callback.message, form_data)
+        await state_manager.update_data(user_id, form_data=None, current_state=None)
     else:
         await ask_next_question(callback.message, form_data)
     await callback.answer()
 
 
-async def finish_form(message: Message, form_data: Dict, state: FSMContext):
+async def finish_form(message: Message, form_data: Dict):
     """Завершает форму, сохраняет результат и показывает кнопку меню"""
+    user_id = message.from_user.id
+
     # Проверяем наличие обязательных полей
     required_fields = ['answers', 'answers_table']
     if any(field not in form_data for field in required_fields):
@@ -256,11 +207,6 @@ async def finish_form(message: Message, form_data: Dict, state: FSMContext):
             logger.error(f"Не удалось преобразовать answers: {e}")
             await message.answer("Ошибка обработки ответов")
             return
-
-    # Добавляем timestamp, если его нет
-    if 'timestamp' not in form_data:
-        from datetime import datetime
-        form_data['timestamp'] = datetime.now().isoformat()
 
     # Завершаем форму и сохраняем результат
     result = await complete_form(form_data, message.from_user.id)
@@ -299,4 +245,4 @@ async def finish_form(message: Message, form_data: Dict, state: FSMContext):
     )
 
     # Очищаем состояние формы
-    await state.update_data(form_data=None)
+    await state_manager.update_data(user_id, form_data=None, current_state=None)

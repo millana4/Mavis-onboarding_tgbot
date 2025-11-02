@@ -2,18 +2,18 @@ import logging
 
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart
-from aiogram.fsm.context import FSMContext
 from aiogram.types import ReplyKeyboardRemove
 
 from config import Config
-from utils import prepare_telegram_message, normalize_phone
+from utils import normalize_phone
 
 from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
-from app.services.fsm import state_manager, AppStates
+from app.services.fsm import state_manager
 from app.seatable_api.api_auth import register_id_messanger, check_id_messanger
 from app.seatable_api.api_base import fetch_table
 from telegram.keyboards import share_contact_kb
-from telegram.handlers.handler_table import handle_table_menu, handle_content_button
+from telegram.handlers.handler_table import handle_content_button, handle_table_menu
+from telegram.utils import prepare_telegram_message
 
 
 # Создаем роутер
@@ -68,10 +68,19 @@ async def handle_contact(message: types.Message):
         )
 
 
-async def start_navigation(message: types.Message):
-    """Инициализирует FSM и показывает главное меню"""
-    try:
-        # Проверяем права доступа
+async def check_access (message: types.Message = None, callback_query: types.CallbackQuery = None) -> None:
+    """Функция отвечает, если ли доступ у пользователя. Если нет, выводит сообщение"""
+    if callback_query:
+        if not await check_user_access(callback_query.from_user.id):
+            await callback_query.answer(
+                RESTRICTING_MESSAGE,
+                show_alert=True
+            )
+            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_menu_callback")
+            return
+        else:
+            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+    elif message:
         if not await check_user_access(message.chat.id):
             await message.answer(
                 RESTRICTING_MESSAGE,
@@ -81,19 +90,25 @@ async def start_navigation(message: types.Message):
             return
         else:
             logger.info(f"Доступ пользователя {message.chat.id} подтвержден")
+    else:
+        pass
 
-        # Инициализируем состояние навигации
-        state = await state_manager.set_state(
+
+async def start_navigation(message: types.Message):
+    """Инициализирует FSM и показывает главное меню"""
+    try:
+        # Проверяем права доступа
+        await check_access(message)
+
+        # Инициализация состояния дли переходов по меню
+        await state_manager.update_data(
             message.chat.id,
-            AppStates.CURRENT_MENU,
-            {
-                'current_menu': Config.SEATABLE_MAIN_MENU_ID,
-                'navigation_history': [Config.SEATABLE_MAIN_MENU_ID]
-            }
+            current_menu=Config.SEATABLE_MAIN_MENU_ID,
+            navigation_history=[Config.SEATABLE_MAIN_MENU_ID]
         )
 
         # Получаем контент и клавиатуру для главного меню
-        content, keyboard = await handle_table_menu(Config.SEATABLE_MAIN_MENU_ID, message=message, state=state)
+        content, keyboard = await handle_table_menu(Config.SEATABLE_MAIN_MENU_ID, message=message)
 
         kwargs = {
             'reply_markup': keyboard,
@@ -138,40 +153,26 @@ async def process_back_callback(callback_query: types.CallbackQuery):
         user_id = callback_query.from_user.id
 
         # Проверяем права доступа
-        if not await check_user_access(user_id):
-            await callback_query.answer(
-                RESTRICTING_MESSAGE,
-                show_alert=True
-            )
-            logger.info(f"У пользователя {user_id} больше нет доступа. Запрещено в process_back_callback")
-            return
-        else:
-            logger.info(f"Доступ пользователя {user_id} подтвержден")
+        await check_access(callback_query)
 
-        data = await state_manager.get_data(user_id)
-        navigation_history = data.get('navigation_history', [])
+        # Получаем текущее меню
+        current_menu = await state_manager.get_current_menu(user_id)
 
-        if len(navigation_history) <= 1:
-            await callback_query.answer("Вы в главном меню")
+        # Выполняем возврат и получаем предыдущее меню
+        previous_menu = await state_manager.navigate_back(user_id)
+
+        if not previous_menu:
+            await callback_query.answer("Невозможно вернуться назад", show_alert=True)
             return
 
-        # Получаем текущий контент (если мы на content)
-        current_key = navigation_history[-1]
+        # Получаем контент текущего меню
         button_content = None
-        if current_key.startswith('content:'):
-            _, current_table_id, current_row_id = current_key.split(':')
+        if current_menu and current_menu.startswith('content:'):
+            _, current_table_id, current_row_id = current_menu.split(':')
             current_table_data = await fetch_table(current_table_id)
             current_row = next((r for r in current_table_data if r['_id'] == current_row_id), None)
             if current_row and current_row.get('Button_content'):
                 button_content = prepare_telegram_message(current_row['Button_content'])
-
-        # Получаем предыдущий экран
-        previous_key = navigation_history[-2]
-        await state_manager.update_data(
-            user_id,
-            current_menu=previous_key,
-            navigation_history=navigation_history[:-1]
-        )
 
         # Удаляем текущее сообщение
         try:
@@ -194,8 +195,8 @@ async def process_back_callback(callback_query: types.CallbackQuery):
                 )
 
         # Возвращаемся к предыдущему экрану
-        if previous_key.startswith('content:'):
-            _, table_id, row_id = previous_key.split(':')
+        if previous_menu.startswith('content:'):
+            _, table_id, row_id = previous_menu.split(':')
             content, keyboard = await handle_content_button(table_id, row_id)
 
             caption = content.get('text', '')
@@ -219,7 +220,7 @@ async def process_back_callback(callback_query: types.CallbackQuery):
                         reply_markup=keyboard
                     )
         else:
-            content, keyboard = await handle_table_menu(previous_key)
+            content, keyboard = await handle_table_menu(previous_menu)
 
             menu_text = content.get('text', '')
             if content and content.get('image_url'):
