@@ -8,7 +8,7 @@ share_contact_kb = ReplyKeyboardMarkup(
     one_time_keyboard=True,
 )
 
-BTN_EMPLOYEE_SEARCH = '🔍 Искать по ФИО'
+BTN_EMPLOYEE_SEARCH: str = '🔍 Искать по ФИО'
 BTN_DEPARTMENT_SEARCH = '👀 Искать по отделу'
 BTN_BACK = '⬅️ Назад'
 

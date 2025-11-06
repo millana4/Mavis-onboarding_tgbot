@@ -1,9 +1,68 @@
+import pprint
 import re
 import html
 import logging
 from typing import Dict
 
+from aiogram import types
+from aiogram.client.session import aiohttp
+from aiogram.types import ReplyKeyboardRemove
+
+from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
+
 logger = logging.getLogger(__name__)
+
+
+async def check_access (message: types.Message = None, callback_query: types.CallbackQuery = None) -> None:
+    """Функция отвечает, если ли доступ у пользователя. Если нет, выводит сообщение
+    :rtype: None
+    """
+    if callback_query:
+        if not await check_user_access(callback_query.from_user.id):
+            await callback_query.answer(
+                RESTRICTING_MESSAGE,
+                show_alert=True
+            )
+            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_menu_callback")
+            return
+        else:
+            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+    elif message:
+        if not await check_user_access(message.chat.id):
+            await message.answer(
+                RESTRICTING_MESSAGE,
+                reply_markup=ReplyKeyboardRemove()
+            )
+            logger.info(f"У пользователя {message.chat.id} больше нет доступа. Запрещено в start_navigation")
+            return
+        else:
+            logger.info(f"Доступ пользователя {message.chat.id} подтвержден")
+    else:
+        pass
+
+
+async def download_and_send_file(file_url: str, callback_query: types.CallbackQuery):
+    """Скачивает файл по прямому URL и отправляет его в чат, откуда пришёл callback."""
+    try:
+        # Если ссылка на GitHub blob — заменяем на raw
+        if "github.com" in file_url and "/blob/" in file_url:
+            file_url = file_url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(file_url) as response:
+                response.raise_for_status()
+                file_data = await response.read()
+
+                file_name = file_url.split("/")[-1]
+                file_to_send = types.BufferedInputFile(file_data, filename=file_name)
+
+                await callback_query.message.answer_document(file_to_send)
+                logger.info(f"Файл {file_name} отправлен в чат {callback_query.message.chat.id}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при скачивании или отправке файла: {str(e)}", exc_info=True)
+        await callback_query.message.answer("Не удалось отправить файл. Пожалуйста, попробуйте позже.")
+
 
 def prepare_telegram_message(markdown_content: str) -> Dict[str, str]:
     """

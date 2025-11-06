@@ -1,20 +1,18 @@
 import asyncio
 import logging
+from typing import List, Dict, Optional, Tuple
 
 from aiogram import Router, types, F
-from aiogram.types import Message
-from aiogram.filters import StateFilter
-from typing import List, Dict, Optional, Tuple
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.fsm.context import FSMContext
-from datetime import datetime
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
-from app.services.forms import start_form_questions, complete_form
-from app.services.fsm import state_manager
 from config import Config
+
+from app.services.forms import start_form_questions, complete_form
+from app.services.fsm import state_manager, AppStates
 from app.seatable_api.api_forms import save_form_answers
-from telegram.handlers.handler_base import check_access
+
+from telegram.handlers.filters import FormFilter
+from telegram.utils import check_access
 from telegram.utils import prepare_telegram_message
 
 
@@ -27,7 +25,7 @@ async def process_form(table_data: List[Dict], message: Message) -> Tuple[Dict, 
     logger.info("Начало обработки формы обратной связи")
 
     # Проверяем права доступа
-    await check_access(message)
+    await check_access(message=message)
 
     info_row = next((row for row in table_data if row.get('Name') == 'Info'), None)
 
@@ -36,11 +34,11 @@ async def process_form(table_data: List[Dict], message: Message) -> Tuple[Dict, 
         return {"text": "Ошибка: форма не настроена правильно"}, None
 
     # Инициализируем состояние формы через state_manager
-    form_data = await start_form_questions(message.from_user.id, table_data)
+    form_data = await start_form_questions(table_data)
     await state_manager.update_data(
-        message.from_user.id,
+        message.chat.id,
         form_data=form_data,
-        current_state='form_data'  # устанавливаем состояние формы
+        current_state=AppStates.FORM_DATA  # устанавливаем состояние формы
     )
 
     # Подготавливаем контент
@@ -92,6 +90,7 @@ async def get_form_question(form_state: Dict) -> Tuple[str, Optional[InlineKeybo
 
 async def ask_next_question(message: Message, form_data: Dict):
     """Задает следующий вопрос формы"""
+    user_id = message.chat.id
     question_text, keyboard = await get_form_question(form_data)
 
     # Отправляем вопрос в чат
@@ -102,20 +101,25 @@ async def ask_next_question(message: Message, form_data: Dict):
 
     # Сохраняем ID отправленного вопроса для последующего редактирования
     form_data['last_question_message_id'] = sent_message.message_id
+
+    await state_manager.update_data(user_id, form_data=form_data)
     return sent_message
 
 
-@router.message(F.text)
+@router.message(F.text, F.content_type == 'text', FormFilter('form_data'))
 async def handle_text_answer(message: types.Message):
     """Обрабатывает текстовые ответы в форме обратной связи"""
-    user_id = message.from_user.id
+    user_id = message.chat.id
+    logger.info(f"Обрабатывается текстовый ответ пользователя {user_id} в handle_text_answer")
 
     # Проверяем состояние через state_manager
     user_data = await state_manager.get_data(user_id)
-    if user_data.get('current_state') != 'form_data' or 'form_data' not in user_data:
+
+    # Дополнительная проверка на наличие form_data
+    if 'form_data' not in user_data:
         return
 
-    form_data = user_data['form_data']
+    form_data = user_data['form_data'].copy()
     current_question = form_data['current_question']
 
     # Проверяем, ожидаем ли мы текстовый ответ
@@ -131,7 +135,6 @@ async def handle_text_answer(message: types.Message):
     if question_data.get('Free_input', False) is False and answer_options:
         return  # Пропускаем, если это вопрос с вариантами
 
-
     # Сохраняем ответ
     form_data['answers'].append(message.text)
     form_data['current_question'] += 1
@@ -141,7 +144,7 @@ async def handle_text_answer(message: types.Message):
 
     if form_data['current_question'] >= len(form_data['questions']):
         await finish_form(message, form_data)
-        await state_manager.update_data(user_id, form_data=None, current_state=None)
+        await state_manager.update_data(user_id, form_data=None, current_state=AppStates.CURRENT_MENU)
     else:
         await ask_next_question(message, form_data)
 
@@ -150,14 +153,15 @@ async def handle_text_answer(message: types.Message):
 async def handle_form_option(callback: types.CallbackQuery):
     """Обрабатывает выбор варианта в форме"""
     user_id = callback.from_user.id
+    logger.info(f"Обрабатывается выбор варианта пользователя {user_id} в handle_form_option")
 
     # Проверяем состояние через state_manager
     user_data = await state_manager.get_data(user_id)
-    if user_data.get('current_state') != 'form_data' or 'form_data' not in user_data:
+    if user_data.get('current_state') != AppStates.FORM_DATA or 'form_data' not in user_data:
         await callback.answer()
         return
 
-    form_data = user_data['form_data']
+    form_data = user_data['form_data'].copy()
     answer = callback.data.split(':', 1)[1]
 
     # Отправляем выбранный ответ в чат
@@ -180,7 +184,7 @@ async def handle_form_option(callback: types.CallbackQuery):
     # Переходим к следующему вопросу или завершаем
     if form_data['current_question'] >= len(form_data['questions']):
         await finish_form(callback.message, form_data)
-        await state_manager.update_data(user_id, form_data=None, current_state=None)
+        await state_manager.update_data(user_id, form_data=None, current_state=AppStates.CURRENT_MENU)
     else:
         await ask_next_question(callback.message, form_data)
     await callback.answer()
@@ -188,7 +192,7 @@ async def handle_form_option(callback: types.CallbackQuery):
 
 async def finish_form(message: Message, form_data: Dict):
     """Завершает форму, сохраняет результат и показывает кнопку меню"""
-    user_id = message.from_user.id
+    user_id = message.chat.id
 
     # Проверяем наличие обязательных полей
     required_fields = ['answers', 'answers_table']
@@ -245,4 +249,4 @@ async def finish_form(message: Message, form_data: Dict):
     )
 
     # Очищаем состояние формы
-    await state_manager.update_data(user_id, form_data=None, current_state=None)
+    await state_manager.update_data(user_id, form_data=None, current_state=AppStates.CURRENT_MENU)

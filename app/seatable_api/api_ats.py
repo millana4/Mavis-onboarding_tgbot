@@ -56,8 +56,8 @@ async def get_department_list() -> List[str]:
                         options = column.get('data', {}).get('options', [])
                         # Берём только названия отделов
                         return [opt.get("name") for opt in options if isinstance(opt, dict)]
-
         return []
+
     except Exception as e:
         print(f"Ошибка при получении списка отделов: {e}")
         return []

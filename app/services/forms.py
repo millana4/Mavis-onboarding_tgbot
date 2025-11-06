@@ -1,18 +1,6 @@
-import asyncio
 import logging
-
-from aiogram import Router, types
-from aiogram.types import Message
-from aiogram.filters import StateFilter
-from typing import List, Dict, Optional, Tuple
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.fsm.context import FSMContext
+from typing import List, Dict, Optional
 from datetime import datetime
-
-from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
-from config import Config
-from app.seatable_api.api_forms import save_form_answers
-from telegram.utils import prepare_telegram_message
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +45,59 @@ async def start_form_questions(table_data: List[Dict]) -> Dict:
         "answers": [],
         "answers_table": answers_table,  # Может быть None
         "final_message": final_message  # Может быть None
+    }
+
+
+async def prepare_data_to_post_in_seatable(form_data: Dict) -> Optional[Dict]:
+    """
+    Подготавливает данные из форм обратной связи для сохранения в Seatable.
+    Возвращает словарь с данными или None в случае ошибки.
+    """
+    # Проверяем обязательные поля
+    required_fields = ['user_id', 'questions', 'answers', 'answers_table']
+    if any(field not in form_data for field in required_fields):
+        logger.error(f"Отсутствуют обязательные поля: {[f for f in required_fields if f not in form_data]}")
+        return None
+
+    if len(form_data['questions']) != len(form_data['answers']):
+        logger.error(f"Количество вопросов ({len(form_data['questions'])}) != ответов ({len(form_data['answers'])})")
+        return None
+
+    # Извлекаем table_id из URL
+    try:
+        from urllib.parse import urlparse, parse_qs
+        parsed_url = urlparse(form_data['answers_table'])
+        query_params = parse_qs(parsed_url.query)
+        table_id = query_params.get('tid')[0]
+        logger.info(f"Table ID: {table_id}")
+    except Exception as e:
+        logger.error(f"Ошибка парсинга URL таблицы: {e}")
+        return None
+
+    # Подготавливаем данные
+    try:
+        from datetime import datetime
+        timestamp = form_data.get('timestamp', datetime.now().isoformat())
+        formatted_date = datetime.fromisoformat(timestamp).strftime("%d.%m.%Y %H:%M")
+    except Exception as e:
+        logger.error(f"Ошибка форматирования даты: {e}")
+        formatted_date = timestamp
+
+    # Формируем строку для записи
+    row_data = {
+        'Name': str(form_data['user_id']),
+        'Дата и время': formatted_date
+    }
+
+    # Добавляем вопросы и ответы
+    for question_data, answer in zip(form_data['questions'], form_data['answers']):
+        question_text = question_data.get('Name', '')
+        if question_text:
+            row_data[question_text] = str(answer) if answer is not None else ''
+
+    return {
+        'row_data': row_data,
+        'table_id': table_id
     }
 
 

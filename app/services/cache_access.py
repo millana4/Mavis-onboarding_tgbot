@@ -1,6 +1,5 @@
 import logging
 from cachetools import TTLCache
-from aiogram import types
 
 from app.seatable_api.api_auth import check_id_messanger
 
@@ -32,25 +31,3 @@ async def check_user_access(user_id: int) -> bool:
     except Exception as e:
         logger.error(f"Error checking user access for {user_id}: {str(e)}")
         return False
-
-
-async def require_access_decorator(func):
-    """
-    Декоратор для проверки прав доступа перед выполнением функции.
-    """
-
-    async def wrapper(message: types.Message, *args, **kwargs):
-        user_id = message.from_user.id
-
-        if not await check_user_access(user_id):
-            await message.answer(
-                "🚫 Извините, у вас больше нет доступа. Обратитесь, пожалуйста, к администратору системы.",
-                reply_markup=types.ReplyKeyboardRemove()
-            )
-            return
-
-        # Если доступ есть, выполняем оригинальную функцию
-        return await func(message, *args, **kwargs)
-
-    return wrapper
-

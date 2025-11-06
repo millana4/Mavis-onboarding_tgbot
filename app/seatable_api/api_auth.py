@@ -1,17 +1,16 @@
-import pprint
 import logging
 import aiohttp
 
 from config import Config
 from app.seatable_api.api_base import get_base_token
-from utils import normalize_phone
+from app.services.utils import normalize_phone
 
 logger = logging.getLogger(__name__)
 
 async def check_id_messanger(id_messanger: str) -> bool:
     """
     Функция для регистрации и получения доступа, а также для переподтверждения прав доступа и записи в кеш.
-    Проверяет наличие ID_messanger в таблице Users.
+    Проверяет наличие ID_messanger в таблице Users Seatable.
     Возвращает True если пользователь найден, False если нет.
     """
     try:

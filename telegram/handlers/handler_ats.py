@@ -1,16 +1,19 @@
-import re
 import logging
-from aiogram import Router, types, F
-from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import StateFilter
+import pprint
 from typing import List, Dict
 
-from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
-from config import Config
-from telegram.handlers.handler_base import start_navigation
-from telegram.keyboards import search_kb, BTN_DEPARTMENT_SEARCH, BTN_EMPLOYEE_SEARCH, BTN_BACK
+from aiogram import Router, types, F
+from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+
+from app.services.fsm import state_manager, AppStates
+from app.services.ats import give_employee_data, format_employee_text
 from app.seatable_api.api_ats import get_employees, get_department_list
+
+from telegram.handlers.handler_base import start_navigation
+from telegram.handlers.filters import NameSearchFilter
+from telegram.keyboards import search_kb, BTN_DEPARTMENT_SEARCH, BTN_EMPLOYEE_SEARCH, BTN_BACK
+from telegram.utils import check_access
+
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -18,30 +21,17 @@ logger = logging.getLogger(__name__)
 
 # Хендлер для кнопки со справочником сотрудников
 @router.callback_query(lambda c: c.data.startswith('ats:'))
-async def process_ats_callback(callback_query: types.CallbackQuery, state: FSMContext):
+async def process_ats_callback(callback_query: types.CallbackQuery):
     """Обрабатывает нажатие на кнопку со справочником"""
     try:
+        user_id = callback_query.from_user.id
+
         # Проверяем права доступа
-        if not await check_user_access(callback_query.from_user.id):
-            await callback_query.answer(
-                RESTRICTING_MESSAGE,
-                show_alert=True
-            )
-            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_ats_callback")
-            return
-        else:
-            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+        await check_access(callback_query=callback_query)
 
         # Получаем и обновляем состояние
-        data = await state.get_data()
-        navigation_history = data.get('navigation_history', [Config.SEATABLE_MAIN_MENU_ID])
         ats_tag = callback_query.data.split(':')[1]
-        navigation_history.append(ats_tag)
-
-        await state.update_data(
-            current_menu=ats_tag,
-            navigation_history=navigation_history
-        )
+        await state_manager.navigate_to_menu(user_id, ats_tag)
 
         # Удаляем предыдущее сообщение с меню
         try:
@@ -56,8 +46,8 @@ async def process_ats_callback(callback_query: types.CallbackQuery, state: FSMCo
         )
 
         # Устанавливаем состояние ожидания выбора типа поиска
-        await state.set_state(SearchState.waiting_for_search_type)
-        logger.info(f"Установлено состояние: {SearchState.waiting_for_search_type}")
+        await state_manager.update_data(user_id, current_state=AppStates.WAITING_FOR_SEARCH_TYPE)
+        logger.info(f"Установлено состояние: {AppStates.WAITING_FOR_SEARCH_TYPE}")
 
         await callback_query.answer()
 
@@ -67,20 +57,19 @@ async def process_ats_callback(callback_query: types.CallbackQuery, state: FSMCo
 
 
 # Обработчик выбора "Искать по ФИО"
-@router.message(StateFilter(SearchState.waiting_for_search_type), F.text == BTN_EMPLOYEE_SEARCH)
-async def handle_name_search(message: Message, state: FSMContext):
+@router.message(F.text == BTN_EMPLOYEE_SEARCH)
+async def handle_name_search(message: Message):
     """Обрабатывает выбор поиска по ФИО"""
     try:
+        user_id = message.from_user.id
+
         # Проверяем права доступа
-        if not await check_user_access(message.from_user.id):
-            await message.answer(
-                RESTRICTING_MESSAGE,
-                reply_markup=ReplyKeyboardRemove()
-            )
-            logger.info(f"У пользователя {message.from_user.id} больше нет доступа. Запрещено в handle_name_search")
+        await check_access(message=message)
+
+        # Проверяем, что пользователь в правильном состоянии
+        user_data = await state_manager.get_data(user_id)
+        if user_data.get('current_state') != AppStates.WAITING_FOR_SEARCH_TYPE:
             return
-        else:
-            logger.info(f"Доступ пользователя {message.from_user.id} подтвержден")
 
         # Убираем клавиатуру выбора и просим ввести ФИО
         await message.answer(
@@ -90,7 +79,8 @@ async def handle_name_search(message: Message, state: FSMContext):
         )
 
         # Устанавливаем состояние ожидания ввода ФИО
-        await state.set_state(SearchState.waiting_for_name_search)
+        await state_manager.update_data(user_id, current_state=AppStates.WAITING_FOR_NAME_SEARCH)
+        logger.info(f"Установлено состояние: {AppStates.WAITING_FOR_NAME_SEARCH}")
 
     except Exception as e:
         logger.error(f"Name search error: {str(e)}", exc_info=True)
@@ -98,20 +88,19 @@ async def handle_name_search(message: Message, state: FSMContext):
 
 
 # Обработчик ввода ФИО
-@router.message(StateFilter(SearchState.waiting_for_name_search))
-async def process_name_input(message: Message, state: FSMContext):
+@router.message(F.text, F.content_type == 'text', NameSearchFilter())
+async def process_name_input(message: Message):
     """Обрабатывает ввод ФИО для поиска"""
     try:
+        user_id = message.from_user.id
+
         # Проверяем права доступа
-        if not await check_user_access(message.from_user.id):
-            await message.answer(
-                RESTRICTING_MESSAGE,
-                reply_markup=ReplyKeyboardRemove()
-            )
-            logger.info(f"У пользователя {message.from_user.id} больше нет доступа. Запрещено в process_name_input")
+        await check_access(message=message)
+
+        # Проверяем, что пользователь в правильном состоянии
+        user_data = await state_manager.get_data(user_id)
+        if user_data.get('current_state') != AppStates.WAITING_FOR_NAME_SEARCH:
             return
-        else:
-            logger.info(f"Доступ пользователя {message.from_user.id} подтвержден")
 
         search_query = message.text.strip()
 
@@ -126,67 +115,29 @@ async def process_name_input(message: Message, state: FSMContext):
         employees = await get_employees()
 
         # После поиска показываем результаты и кнопку Назад
-        searched_employees = await give_employee_data("Name/Department", search_query, employees, state)
+        searched_employees = await give_employee_data("Name/Department", search_query, employees)
 
         # Выводит сообщение с результатами поиска и показывает его, пока пользователь не нажмет Назад
-        await show_employee(searched_employees, message, state)
+        await show_employee(searched_employees, message)
 
     except Exception as e:
         logger.error(f"Name input processing error: {str(e)}", exc_info=True)
         await message.answer("Ошибка при обработке запроса")
 
 
-async def give_employee_data(search_type: str, search_query: str, employees: List[Dict], state: FSMContext) -> List[Dict]:
-    """
-    Ищет сотрудников по строке search_query в списке employees.
-    На вход нужно передать тип поиска:
-    - По ФИО: "Name/Department"
-    - По отделу: "Department"
-    Возвращает список с данными найденных сотрудников.
-    """
-    results = []
-    if not employees:
-        return results
-
-    # Нормализуем запрос
-    query = search_query.strip().lower()
-    query_words = re.split(r"\s+", query)
-
-    for emp in employees:
-        # Берём ФИО/отдел, если оно есть
-        name_field = emp.get(search_type, "")
-        if not name_field:
-            continue
-
-        name_norm = name_field.lower()
-
-        # --- Одинарный запрос (только имя или фамилия)
-        if len(query_words) == 1:
-            if query_words[0] in name_norm:
-                results.append(emp)
-
-        # --- Два слова (имя + фамилия в любом порядке)
-        elif len(query_words) >= 2:
-            w1, w2 = query_words[0], query_words[1]
-            if f"{w1} {w2}" in name_norm or f"{w2} {w1}" in name_norm:
-                results.append(emp)
-
-    logger.info(f"По запросу '{search_query}' найдено {len(results)} сотрудник(ов)")
-    await state.update_data(search_results=results)
-    return results
-
-
-async def show_employee(searched_employees: List[Dict], message: Message, state: FSMContext):
+async def show_employee(searched_employees: List[Dict], message: Message):
     """
     Формирует сообщение с результатами поиска сотрудников и выводит его в чат.
     """
+    user_id = message.from_user.id
+
     # Если ничего не нашли
     if not searched_employees:
         await message.answer(
             "К сожалению, ничего не нашли. Отправьте, пожалуйста, другой запрос.",
             reply_markup=search_kb
         )
-        await state.set_state(SearchState.waiting_for_search_type)
+        await state_manager.update_data(user_id, current_state=AppStates.WAITING_FOR_SEARCH_TYPE)
         return
 
     text_blocks = []
@@ -233,55 +184,19 @@ async def show_employee(searched_employees: List[Dict], message: Message, state:
         )
 
 
-def format_employee_text(emp: Dict) -> str:
-    """
-    Форматирует данные одного сотрудника в текст.
-    """
-    parts = []
-
-    # Имя жирным
-    if emp.get("Name/Department"):
-        parts.append(f"<b>{emp['Name/Department']}</b>")
-
-    if emp.get("Number"):
-        parts.append(f"Телефон: {emp['Number']}")
-
-    if emp.get("Email"):
-        parts.append(f"Email: {emp['Email']}")
-
-    if emp.get("Location"):
-        parts.append(f"Рабочее место: {emp['Location']}")
-
-    if emp.get("Position"):
-        parts.append(f"Должность: {emp['Position']}")
-
-    if emp.get("Department"):
-        parts.append(f"Отдел: {emp['Department']}")
-
-    if emp.get("Company"):
-        company_val = emp["Company"]
-        if isinstance(company_val, list):
-            company_val = ", ".join(company_val)
-        parts.append(f"Компания: {company_val}")
-
-    return "\n".join(parts)
-
-
 # Обработчик выбора "Искать по отделу"
-@router.message(StateFilter(SearchState.waiting_for_search_type), F.text == BTN_DEPARTMENT_SEARCH)
-async def handle_department_search(message: types.Message, state: FSMContext):
+@router.message(F.text == BTN_DEPARTMENT_SEARCH)
+async def handle_department_search(message: types.Message):
     """Обрабатывает выбор поиска по отделу"""
     try:
+        user_id = message.from_user.id
+
         # Проверяем права доступа
-        if not await check_user_access(message.from_user.id):
-            await message.answer(
-                RESTRICTING_MESSAGE,
-                reply_markup=ReplyKeyboardRemove()
-            )
-            logger.info(f"У пользователя {message.from_user.id} больше нет доступа. Запрещено в handle_department_search")
+        await check_access(message=message)
+
+        user_data = await state_manager.get_data(user_id)
+        if user_data.get('current_state') != AppStates.WAITING_FOR_SEARCH_TYPE:
             return
-        else:
-            logger.info(f"Доступ пользователя {message.from_user.id} подтвержден")
 
         # Убираем клавиатуру выбора (ReplyKeyboard) и просим выбрать отдел
         await message.answer(
@@ -290,10 +205,11 @@ async def handle_department_search(message: types.Message, state: FSMContext):
         )
 
         # Создаём инлайн-клавиатуру с отделами
-        keyboard = await _create_department_keyboard()
+        keyboard = await create_department_keyboard()
 
         # Устанавливаем состояние ожидания ввода отдела
-        await state.set_state(SearchState.waiting_for_department_search)
+        await state_manager.update_data(user_id, current_state=AppStates.WAITING_FOR_DEPARTMENT_SEARCH)
+        logger.info(f"Установлено состояние: {AppStates.WAITING_FOR_DEPARTMENT_SEARCH}")
 
         # Отправляем инлайн-клавиатуру пользователю
         await message.answer("Список отделов:", reply_markup=keyboard)
@@ -303,7 +219,7 @@ async def handle_department_search(message: types.Message, state: FSMContext):
         await message.answer("Ошибка при выборе поиска телефонов по отделу")
 
 
-async def _create_department_keyboard() -> InlineKeyboardMarkup:
+async def create_department_keyboard() -> InlineKeyboardMarkup:
     """
     Создает клавиатуру со списком доступных отделов, по которым можно получить телефоны.
     Кнопки выводятся по 2 в строку.
@@ -339,19 +255,18 @@ async def _create_department_keyboard() -> InlineKeyboardMarkup:
 
 # Обработчик ввода отдела
 @router.callback_query(lambda c: c.data.startswith('department:'))
-async def process_department_input(callback_query: types.CallbackQuery, state: FSMContext):
+async def process_department_input(callback_query: types.CallbackQuery):
     """Обрабатывает ввод отдела для поиска"""
     try:
+        user_id = callback_query.from_user.id
+
         # Проверяем права доступа
-        if not await check_user_access(callback_query.from_user.id):
-            await callback_query.answer(
-                RESTRICTING_MESSAGE,
-                show_alert=True
-            )
-            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_department_input")
+        await check_access(callback_query=callback_query)
+
+        # Проверяем, что пользователь в правильном состоянии
+        user_data = await state_manager.get_data(user_id)
+        if user_data.get('current_state') != AppStates.WAITING_FOR_DEPARTMENT_SEARCH:
             return
-        else:
-            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
 
         # Убираем "часики" на кнопке
         await callback_query.answer()
@@ -367,10 +282,10 @@ async def process_department_input(callback_query: types.CallbackQuery, state: F
         employees = await get_employees()
 
         # Фильтруем по отделу
-        searched_employees = await give_employee_data("Department", search_query, employees, state)
+        searched_employees = await give_employee_data("Department", search_query, employees)
 
         # Показываем результат поиска
-        await show_employee(searched_employees, callback_query.message, state)
+        await show_employee(searched_employees, callback_query.message)
 
     except Exception as e:
         logger.error(f"Department input processing error: {str(e)}", exc_info=True)
@@ -378,22 +293,21 @@ async def process_department_input(callback_query: types.CallbackQuery, state: F
 
 
 # Обработчик кнопки "Назад" из состояния выбора типа поиска
-@router.message(StateFilter(SearchState.waiting_for_search_type), F.text == BTN_BACK)
-async def handle_back_from_search(message: Message, state: FSMContext):
+@router.message(F.text == BTN_BACK)
+async def handle_back_from_search(message: Message):
     """Обрабатывает кнопку Назад из режима поиска"""
     try:
+        user_id = message.chat.id
+
         # Проверяем права доступа
-        if not await check_user_access(message.chat.id):
-            await message.answer(
-                RESTRICTING_MESSAGE,
-                reply_markup=ReplyKeyboardRemove()
-            )
-            logger.info(f"У пользователя {message.chat.id} больше нет доступа. Запрещено в handle_back_from_search")
-            return
-        else:
-            logger.info(f"Доступ пользователя {message.chat.id} подтвержден")
+        await check_access(message=message)
 
         logger.info(f"Обработка кнопки Назад для пользователя {message.chat.id}")
+
+        # Проверяем, что пользователь в правильном состоянии
+        user_data = await state_manager.get_data(user_id)
+        if user_data.get('current_state') != AppStates.WAITING_FOR_SEARCH_TYPE:
+            return
 
         # Убираем клавиатуру
         await message.answer(
@@ -402,11 +316,11 @@ async def handle_back_from_search(message: Message, state: FSMContext):
         )
 
         # Сбрасываем состояние поиска
-        await state.clear()
+        await state_manager.clear(user_id)
         logger.info("Состояние поиска очищено")
 
         # Возвращаем в главное меню - создаем новое сообщение
-        await start_navigation(message=message, state=state)
+        await start_navigation(message=message)
 
     except Exception as e:
         logger.error(f"Back from search error: {str(e)}", exc_info=True)
@@ -414,21 +328,13 @@ async def handle_back_from_search(message: Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "search_back")
-async def handle_search_back(callback: types.CallbackQuery, state: FSMContext):
+async def handle_search_back(callback: types.CallbackQuery):
     """Обрабатывает кнопку Назад из результатов поиска — возвращает в главное меню"""
     try:
-        # Проверяем права доступа
-        if not await check_user_access(callback.from_user.id):
-            await callback.answer(
-                RESTRICTING_MESSAGE,
-                show_alert=True
-            )
-            logger.info(f"У пользователя {callback.from_user.id} больше нет доступа. Запрещено в handle_search_back")
-            return
-        else:
-            logger.info(f"Доступ пользователя {callback.from_user.id} подтвержден")
+        user_id = callback.from_user.id
 
-        logger.info(f"Обработка кнопки Назад (inline) для пользователя {callback.from_user.id}")
+        # Проверяем права доступа
+        await check_access(callback_query=callback)
 
         # Удаляем сообщение с результатами
         try:
@@ -437,7 +343,7 @@ async def handle_search_back(callback: types.CallbackQuery, state: FSMContext):
             pass
 
         # Убираем состояние поиска
-        await state.clear()
+        await state_manager.clear(user_id)
         logger.info("Состояние поиска очищено (inline back)")
 
         # Сообщаем пользователю
@@ -447,17 +353,10 @@ async def handle_search_back(callback: types.CallbackQuery, state: FSMContext):
         )
 
         # Запускаем главное меню
-        await start_navigation(message=callback.message, state=state)
+        await start_navigation(message=callback.message)
 
         await callback.answer()
 
     except Exception as e:
         logger.error(f"Search back (inline) error: {str(e)}", exc_info=True)
         await callback.answer("Ошибка при возврате в меню", show_alert=True)
-
-
-@router.message(StateFilter(None))
-async def fallback_handler(message: Message, state: FSMContext):
-    current_state = await state.get_state()
-    logger.warning(f"[FALLBACK] Необработанное сообщение: {message.text!r} при состоянии {current_state}")
-    await message.answer("⚠️ Команда не распознана. Попробуйте ещё раз или нажмите «Назад».")

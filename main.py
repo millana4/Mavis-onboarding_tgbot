@@ -2,7 +2,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher
 
-import custom_logging
+from telegram import custom_logging
 from telegram.handlers import handler_ats, handler_form, handler_table, handler_base
 from config import Config
 

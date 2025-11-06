@@ -1,17 +1,8 @@
-import re
 import logging
-from typing import List, Dict, Optional, Tuple
-from aiogram import Router, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from typing import List, Dict
 
-from config import Config
-from app.services.fsm import state_manager
-from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
-from app.seatable_api.api_base import fetch_table
-from telegram.handlers.handler_form import _process_form, _is_form
 from telegram.utils import prepare_telegram_message
-from telegram.handlers.handler_table import _create_menu_keyboard
-from utils import download_and_send_file
+
 
 logger = logging.getLogger(__name__)
 

@@ -5,15 +5,16 @@ from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardRemove
 
 from config import Config
-from utils import normalize_phone
 
-from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
-from app.services.fsm import state_manager
+from app.services.utils import normalize_phone
+from app.services.cache_access import RESTRICTING_MESSAGE
+from app.services.fsm import state_manager, AppStates
 from app.seatable_api.api_auth import register_id_messanger, check_id_messanger
 from app.seatable_api.api_base import fetch_table
+
 from telegram.keyboards import share_contact_kb
 from telegram.handlers.handler_table import handle_content_button, handle_table_menu
-from telegram.utils import prepare_telegram_message
+from telegram.utils import prepare_telegram_message, check_access
 
 
 # Создаем роутер
@@ -68,43 +69,23 @@ async def handle_contact(message: types.Message):
         )
 
 
-async def check_access (message: types.Message = None, callback_query: types.CallbackQuery = None) -> None:
-    """Функция отвечает, если ли доступ у пользователя. Если нет, выводит сообщение"""
-    if callback_query:
-        if not await check_user_access(callback_query.from_user.id):
-            await callback_query.answer(
-                RESTRICTING_MESSAGE,
-                show_alert=True
-            )
-            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_menu_callback")
-            return
-        else:
-            logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
-    elif message:
-        if not await check_user_access(message.chat.id):
-            await message.answer(
-                RESTRICTING_MESSAGE,
-                reply_markup=ReplyKeyboardRemove()
-            )
-            logger.info(f"У пользователя {message.chat.id} больше нет доступа. Запрещено в start_navigation")
-            return
-        else:
-            logger.info(f"Доступ пользователя {message.chat.id} подтвержден")
-    else:
-        pass
-
-
 async def start_navigation(message: types.Message):
     """Инициализирует FSM и показывает главное меню"""
     try:
+        user_id = message.chat.id
+
+        # Очищаем состояние на случай перезапуска
+        await state_manager.clear(user_id)
+
         # Проверяем права доступа
-        await check_access(message)
+        await check_access(message=message)
 
         # Инициализация состояния дли переходов по меню
         await state_manager.update_data(
-            message.chat.id,
+            user_id,
             current_menu=Config.SEATABLE_MAIN_MENU_ID,
-            navigation_history=[Config.SEATABLE_MAIN_MENU_ID]
+            navigation_history=[],
+            current_state=AppStates.CURRENT_MENU
         )
 
         # Получаем контент и клавиатуру для главного меню
@@ -153,7 +134,7 @@ async def process_back_callback(callback_query: types.CallbackQuery):
         user_id = callback_query.from_user.id
 
         # Проверяем права доступа
-        await check_access(callback_query)
+        await check_access(callback_query=callback_query)
 
         # Получаем текущее меню
         current_menu = await state_manager.get_current_menu(user_id)

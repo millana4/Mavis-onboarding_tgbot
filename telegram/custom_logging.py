@@ -35,7 +35,7 @@ class UserIdFilter(logging.Filter):
 def setup_logging():
     """Настройка логирования для всего проекта"""
     # Создаем папку для логов
-    log_dir = Path("logs")
+    log_dir = Path("../logs")
     log_dir.mkdir(exist_ok=True)
 
     # Основные настройки
@@ -52,7 +52,7 @@ def setup_logging():
 
     # Файловый обработчик
     file_handler = RotatingFileHandler(
-        'logs/bot.log',
+        '../logs/bot.log',
         maxBytes=10 * 1024 * 1024,
         backupCount=3,
         encoding='utf-8'

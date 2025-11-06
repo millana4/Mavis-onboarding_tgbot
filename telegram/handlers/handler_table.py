@@ -1,19 +1,20 @@
 import re
 import logging
 from typing import List, Dict, Optional, Tuple
+
 from aiogram import Router, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
-from app.services.navigation import process_content_part
 from config import Config
+from app.services.navigation import process_content_part
 from app.services.fsm import state_manager
-from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
-from app.seatable_api.api_base import fetch_table
 from app.services.forms import is_form
+from app.seatable_api.api_base import fetch_table
+
 from telegram.handlers.handler_form import process_form
-from telegram.handlers.handler_base import check_access
-from telegram.utils import prepare_telegram_message
-from utils import download_and_send_file
+from telegram.utils import check_access
+from telegram.utils import prepare_telegram_message, download_and_send_file
+
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -109,18 +110,17 @@ async def process_menu_callback(callback_query: types.CallbackQuery):
         user_id = callback_query.from_user.id
 
         # Проверяем права доступа
-        await check_access(callback_query)
+        await check_access(callback_query=callback_query)
 
         # Получаем и обновляем состояние
         new_table_id = callback_query.data.split(':')[1]
         await state_manager.navigate_to_menu(user_id, new_table_id)
 
         # Получаем данные меню
-        state = state_manager.get_current_menu(user_id)
+        state = await state_manager.get_current_menu(user_id)
         content, keyboard = await handle_table_menu(
             new_table_id,
             message=callback_query.message,
-            state=state
         )
 
         # Удаляем предыдущее сообщение и создаем новое
@@ -162,7 +162,7 @@ async def process_content_callback(callback_query: types.CallbackQuery):
         user_id = callback_query.from_user.id
 
         # Проверяем права доступа
-        await check_access(callback_query)
+        await check_access(callback_query=callback_query)
 
         # Получаем параметры контента
         _, table_id, row_id = callback_query.data.split(':')
