@@ -7,10 +7,10 @@ from app.services.utils import normalize_phone
 
 logger = logging.getLogger(__name__)
 
-async def check_id_messanger(id_messanger: str) -> bool:
+async def check_id_messenger(id_messenger: str) -> bool:
     """
     Функция для регистрации и получения доступа, а также для переподтверждения прав доступа и записи в кеш.
-    Проверяет наличие ID_messanger в таблице Users Seatable.
+    Проверяет наличие ID_messenger в таблице Users Seatable.
     Возвращает True если пользователь найден, False если нет.
     """
     try:
@@ -49,13 +49,13 @@ async def check_id_messanger(id_messanger: str) -> bool:
                     ]
                 """
 
-                # Ищем пользователя с совпадающим id_messanger
+                # Ищем пользователя с совпадающим id_messenger
                 for row in data.get("rows", []):
-                    if str(row.get("ID_messanger")) == str(id_messanger):
-                        logger.info(f"Найден пользователь с ID_messanger: {id_messanger}")
+                    if str(row.get("ID_messenger")) == str(id_messenger):
+                        logger.info(f"Найден пользователь с ID_messenger: {id_messenger}")
                         return True
 
-                logger.info(f"Пользователь с ID_messanger {id_messanger} не найден")
+                logger.info(f"Пользователь с ID_messenger {id_messenger} не найден")
                 return False
 
     except Exception as e:
@@ -63,10 +63,10 @@ async def check_id_messanger(id_messanger: str) -> bool:
         return False
 
 
-async def register_id_messanger(phone: str, id_messanger: str) -> bool:
+async def register_id_messenger(phone: str, id_messenger: str) -> bool:
     """
     Функция для регистрации и получения доступа.
-    Обращается по API к Seatable, ищет там пользователя по телефону и записывает его id_messanger.
+    Обращается по API к Seatable, ищет там пользователя по телефону и записывает его id_messenger.
     """
     try:
         # Получаем токен
@@ -84,7 +84,7 @@ async def register_id_messanger(phone: str, id_messanger: str) -> bool:
 
         # Используем человекочитаемые названия колонок, а не их внутренние ключи
         phone_column = "Phone"  # Колонка с телефонами
-        id_messanger_column = "ID_messanger"  # Колонка для id_messanger
+        id_messenger_column = "ID_messenger"  # Колонка для id_messenger
 
         # Получаем параметры
         params = {
@@ -135,7 +135,7 @@ async def register_id_messanger(phone: str, id_messanger: str) -> bool:
                     "table_id": Config.SEATABLE_USERS_TABLE_ID,
                     "row_id": row_id,
                     "row": {
-                        id_messanger_column: str(id_messanger)
+                        id_messenger_column: str(id_messenger)
                     }
                 }
 
@@ -145,7 +145,7 @@ async def register_id_messanger(phone: str, id_messanger: str) -> bool:
                         logger.error(f"Ошибка обновления: {resp.status} - {await resp.text()}")
                         return False
 
-                    logger.info(f"ID_messanger успешно добавлен для пользователя с телефоном {phone}")
+                    logger.info(f"ID_messenger успешно добавлен для пользователя с телефоном {phone}")
                     return True
 
     except Exception as e:

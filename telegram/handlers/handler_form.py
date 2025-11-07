@@ -24,8 +24,10 @@ async def process_form(table_data: List[Dict], message: Message) -> Tuple[Dict, 
     """Обрабатывает данные формы"""
     logger.info("Начало обработки формы обратной связи")
 
-    # Проверяем права доступа
-    await check_access(message=message)
+    # Проверяем права доступа и выходим если нет доступа
+    has_access = await check_access(message=message)
+    if not has_access:
+        return
 
     info_row = next((row for row in table_data if row.get('Name') == 'Info'), None)
 

@@ -7,9 +7,8 @@ from aiogram.types import ReplyKeyboardRemove
 from config import Config
 
 from app.services.utils import normalize_phone
-from app.services.cache_access import RESTRICTING_MESSAGE
 from app.services.fsm import state_manager, AppStates
-from app.seatable_api.api_auth import register_id_messanger, check_id_messanger
+from app.seatable_api.api_auth import register_id_messenger, check_id_messenger
 from app.seatable_api.api_base import fetch_table
 
 from telegram.keyboards import share_contact_kb
@@ -29,7 +28,7 @@ async def cmd_start(message: types.Message):
     logger.info(f"Пользователь {user_id} нажал кнопку Старт")
 
     # Проверяем, есть ли пользователь с таким id_telegram
-    already_member = await check_id_messanger(user_id)
+    already_member = await check_id_messenger(user_id)
     logger.info(f"Пользователь {user_id} авторизован: {already_member}")
 
     if already_member:
@@ -38,7 +37,7 @@ async def cmd_start(message: types.Message):
     else:
         # Иначе просим поделиться контактом
         await message.answer(
-            RESTRICTING_MESSAGE,
+            "Поделитесь, пожалуйста, вашим номером телефона, чтобы войти 👇",
             reply_markup=share_contact_kb,
         )
 
@@ -52,12 +51,12 @@ async def handle_contact(message: types.Message):
     normalized_phone = normalize_phone(contact.phone_number)
     logger.info(f"Пользователь {user_id} прислал номер: {contact.phone_number} (нормализован: {normalized_phone})")
 
-    # Добавляем id_messanger пользователя в таблицу Seatable
-    success = await register_id_messanger(normalized_phone, user_id)
+    # Добавляем id_messenger пользователя в таблицу Seatable
+    success = await register_id_messenger(normalized_phone, user_id)
 
     if success:
         await message.answer(
-            "🎉 Вы успешно авторизовались! Что вас интересует?",
+            "🎉 Вы успешно авторизовались!",
             reply_markup=ReplyKeyboardRemove()
         )
         # После успешной регистрации запускаем навигацию
@@ -77,8 +76,10 @@ async def start_navigation(message: types.Message):
         # Очищаем состояние на случай перезапуска
         await state_manager.clear(user_id)
 
-        # Проверяем права доступа
-        await check_access(message=message)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(message=message)
+        if not has_access:
+            return
 
         # Инициализация состояния дли переходов по меню
         await state_manager.update_data(
@@ -133,8 +134,10 @@ async def process_back_callback(callback_query: types.CallbackQuery):
     try:
         user_id = callback_query.from_user.id
 
-        # Проверяем права доступа
-        await check_access(callback_query=callback_query)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(callback_query=callback_query)
+        if not has_access:
+            return
 
         # Получаем текущее меню
         current_menu = await state_manager.get_current_menu(user_id)
@@ -143,7 +146,8 @@ async def process_back_callback(callback_query: types.CallbackQuery):
         previous_menu = await state_manager.navigate_back(user_id)
 
         if not previous_menu:
-            await callback_query.answer("Невозможно вернуться назад", show_alert=True)
+            await start_navigation(message=callback_query.message)
+            await callback_query.answer()
             return
 
         # Получаем контент текущего меню

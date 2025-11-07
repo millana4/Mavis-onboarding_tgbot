@@ -8,37 +8,39 @@ from aiogram import types
 from aiogram.client.session import aiohttp
 from aiogram.types import ReplyKeyboardRemove
 
-from app.services.cache_access import check_user_access, RESTRICTING_MESSAGE
+from app.services.cache_access import check_user_cache, RESTRICTING_MESSAGE
 
 logger = logging.getLogger(__name__)
 
 
-async def check_access (message: types.Message = None, callback_query: types.CallbackQuery = None) -> None:
+async def check_access (message: types.Message = None, callback_query: types.CallbackQuery = None) -> bool:
     """Функция отвечает, если ли доступ у пользователя. Если нет, выводит сообщение
     :rtype: None
     """
     if callback_query:
-        if not await check_user_access(callback_query.from_user.id):
+        if not await check_user_cache(callback_query.from_user.id):
             await callback_query.answer(
                 RESTRICTING_MESSAGE,
                 show_alert=True
             )
-            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа. Запрещено в process_menu_callback")
-            return
+            logger.info(f"У пользователя {callback_query.from_user.id} больше нет доступа.")
+            return False
         else:
             logger.info(f"Доступ пользователя {callback_query.from_user.id} подтвержден")
+            return True
     elif message:
-        if not await check_user_access(message.chat.id):
+        if not await check_user_cache(message.chat.id):
             await message.answer(
                 RESTRICTING_MESSAGE,
                 reply_markup=ReplyKeyboardRemove()
             )
-            logger.info(f"У пользователя {message.chat.id} больше нет доступа. Запрещено в start_navigation")
-            return
+            logger.info(f"У пользователя {message.chat.id} больше нет доступа.")
+            return False
         else:
             logger.info(f"Доступ пользователя {message.chat.id} подтвержден")
+            return True
     else:
-        pass
+        False
 
 
 async def download_and_send_file(file_url: str, callback_query: types.CallbackQuery):

@@ -1,6 +1,6 @@
 import logging
 import aiohttp
-from typing import Dict, Optional
+from typing import Dict
 
 from app.seatable_api.api_base import get_base_token
 from app.services.forms import prepare_data_to_post_in_seatable

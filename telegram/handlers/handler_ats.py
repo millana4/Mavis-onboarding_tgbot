@@ -24,10 +24,13 @@ logger = logging.getLogger(__name__)
 async def process_ats_callback(callback_query: types.CallbackQuery):
     """Обрабатывает нажатие на кнопку со справочником"""
     try:
+
         user_id = callback_query.from_user.id
 
-        # Проверяем права доступа
-        await check_access(callback_query=callback_query)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(callback_query=callback_query)
+        if not has_access:
+            return
 
         # Получаем и обновляем состояние
         ats_tag = callback_query.data.split(':')[1]
@@ -63,8 +66,10 @@ async def handle_name_search(message: Message):
     try:
         user_id = message.from_user.id
 
-        # Проверяем права доступа
-        await check_access(message=message)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(message=message)
+        if not has_access:
+            return
 
         # Проверяем, что пользователь в правильном состоянии
         user_data = await state_manager.get_data(user_id)
@@ -94,10 +99,12 @@ async def process_name_input(message: Message):
     try:
         user_id = message.from_user.id
 
-        # Проверяем права доступа
-        await check_access(message=message)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(message=message)
+        if not has_access:
+            return
 
-        # Проверяем, что пользователь в правильном состоянии
+            # Проверяем, что пользователь в правильном состоянии
         user_data = await state_manager.get_data(user_id)
         if user_data.get('current_state') != AppStates.WAITING_FOR_NAME_SEARCH:
             return
@@ -191,8 +198,10 @@ async def handle_department_search(message: types.Message):
     try:
         user_id = message.from_user.id
 
-        # Проверяем права доступа
-        await check_access(message=message)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(message=message)
+        if not has_access:
+            return
 
         user_data = await state_manager.get_data(user_id)
         if user_data.get('current_state') != AppStates.WAITING_FOR_SEARCH_TYPE:
@@ -260,8 +269,10 @@ async def process_department_input(callback_query: types.CallbackQuery):
     try:
         user_id = callback_query.from_user.id
 
-        # Проверяем права доступа
-        await check_access(callback_query=callback_query)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(callback_query=callback_query)
+        if not has_access:
+            return
 
         # Проверяем, что пользователь в правильном состоянии
         user_data = await state_manager.get_data(user_id)
@@ -299,8 +310,10 @@ async def handle_back_from_search(message: Message):
     try:
         user_id = message.chat.id
 
-        # Проверяем права доступа
-        await check_access(message=message)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(message=message)
+        if not has_access:
+            return
 
         logger.info(f"Обработка кнопки Назад для пользователя {message.chat.id}")
 
@@ -333,8 +346,10 @@ async def handle_search_back(callback: types.CallbackQuery):
     try:
         user_id = callback.from_user.id
 
-        # Проверяем права доступа
-        await check_access(callback_query=callback)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(callback_query=callback)
+        if not has_access:
+            return
 
         # Удаляем сообщение с результатами
         try:

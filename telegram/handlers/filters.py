@@ -1,7 +1,6 @@
 from aiogram.filters import Filter
 from aiogram import types
 
-from app.services.fsm import StateManager
 
 class FormFilter(Filter):
     def __init__(self, state: str):

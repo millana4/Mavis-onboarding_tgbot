@@ -20,7 +20,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
-                          message: Message = None) -> Tuple[Dict, InlineKeyboardMarkup]:
+                          message: Message = None):
     """
     Обрабатывает данные таблицы и создает Telegram-сообщение с меню или формой
     """
@@ -109,8 +109,10 @@ async def process_menu_callback(callback_query: types.CallbackQuery):
     try:
         user_id = callback_query.from_user.id
 
-        # Проверяем права доступа
-        await check_access(callback_query=callback_query)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(callback_query=callback_query)
+        if not has_access:
+            return
 
         # Получаем и обновляем состояние
         new_table_id = callback_query.data.split(':')[1]
@@ -161,8 +163,10 @@ async def process_content_callback(callback_query: types.CallbackQuery):
     try:
         user_id = callback_query.from_user.id
 
-        # Проверяем права доступа
-        await check_access(callback_query=callback_query)
+        # Проверяем права доступа и выходим если нет доступа
+        has_access = await check_access(callback_query=callback_query)
+        if not has_access:
+            return
 
         # Получаем параметры контента
         _, table_id, row_id = callback_query.data.split(':')
