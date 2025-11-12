@@ -44,26 +44,59 @@ async def check_access (message: types.Message = None, callback_query: types.Cal
 
 
 async def download_and_send_file(file_url: str, callback_query: types.CallbackQuery):
-    """Скачивает файл по прямому URL и отправляет его в чат, откуда пришёл callback."""
+    """Скачивает файл через Seafile и отправляет его в чат"""
     try:
-        # Если ссылка на GitHub blob — заменяем на raw
-        if "github.com" in file_url and "/blob/" in file_url:
-            file_url = file_url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+        # Добавляем параметр для скачивания файла
+        if '?' not in file_url:
+            download_url = file_url + '?dl=1'
+        else:
+            download_url = file_url + '&dl=1'
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(file_url) as response:
-                response.raise_for_status()
-                file_data = await response.read()
+            # Сначала получаем HTML чтобы узнать название файла
+            async with session.get(file_url) as html_response:
+                html_content = await html_response.text()
 
-                file_name = file_url.split("/")[-1]
-                file_to_send = types.BufferedInputFile(file_data, filename=file_name)
+                # Парсим название файла из HTML
+                filename = extract_filename_from_html(html_content)
+                if not filename:
+                    filename = "file"
 
+            # Скачиваем сам файл с параметром dl=1
+            async with session.get(download_url) as file_response:
+                file_response.raise_for_status()
+                file_data = await file_response.read()
+
+                file_to_send = types.BufferedInputFile(file_data, filename=filename)
                 await callback_query.message.answer_document(file_to_send)
-                logger.info(f"Файл {file_name} отправлен в чат {callback_query.message.chat.id}")
+
+                logger.info(f"Файл {filename} отправлен в чат {callback_query.message.chat.id}")
 
     except Exception as e:
         logger.error(f"Ошибка при скачивании или отправке файла: {str(e)}", exc_info=True)
         await callback_query.message.answer("Не удалось отправить файл. Пожалуйста, попробуйте позже.")
+
+
+def extract_filename_from_html(html_content: str) -> str:
+    """Извлекает название файла из HTML Seafile"""
+    try:
+        import re
+
+        # Ищем в og:title
+        title_match = re.search(r'<meta property="og:title" content="([^"]+)"', html_content)
+        if title_match:
+            return title_match.group(1)
+
+        # Ищем в og:description
+        desc_match = re.search(r'<meta property="og:description" content="Share link for ([^"]+)"', html_content)
+        if desc_match:
+            return desc_match.group(1)
+
+        return "file"
+
+    except Exception as e:
+        logger.error(f"Ошибка извлечения названия файла: {str(e)}")
+        return "file"
 
 
 def prepare_telegram_message(markdown_content: str) -> Dict[str, str]:
