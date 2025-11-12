@@ -17,3 +17,10 @@ class NameSearchFilter(Filter):
         from app.services.fsm import state_manager, AppStates
         user_data = await state_manager.get_data(message.from_user.id)
         return user_data.get('current_state') == AppStates.WAITING_FOR_NAME_SEARCH
+
+
+class SearchTypeFilter(Filter):
+    async def __call__(self, message: types.Message) -> bool:
+        from app.services.fsm import state_manager, AppStates
+        user_data = await state_manager.get_data(message.from_user.id)
+        return user_data.get('current_state') == AppStates.WAITING_FOR_SEARCH_TYPE
