@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 
 from telegram import custom_logging
-from telegram.handlers import handler_ats, handler_form, handler_table, handler_base
+from telegram.handlers import handler_ats, handler_form, handler_table, handler_base, handler_broadcast
 from config import Config
 
 async def main():
@@ -17,6 +17,7 @@ async def main():
     dp = Dispatcher()
 
     # Регистрация роутеров
+    dp.include_router(handler_broadcast.router)
     dp.include_router(handler_base.router)
     dp.include_router(handler_ats.router)
     dp.include_router(handler_form.router)
