@@ -34,7 +34,7 @@ async def cmd_broadcast(message: Message):
         keyboard = await create_broadcast_keyboard(notifications)
 
         await message.answer(
-            "Выберите уведомление для рассылки. ❗️ ВНИМАНИЕ: После нажатия на кнопку сообщение отправится пользователям.",
+            "Выберите уведомление для рассылки",
             reply_markup=keyboard
         )
 
@@ -55,7 +55,7 @@ async def create_broadcast_keyboard(notifications: List[Dict]) -> InlineKeyboard
             inline_keyboard.append([
                 InlineKeyboardButton(
                     text=name,
-                    callback_data=f"broadcast:{row_id}"
+                    callback_data=f"broadcast_preview:{row_id}"
                 )
             ])
 
@@ -67,12 +67,69 @@ async def create_broadcast_keyboard(notifications: List[Dict]) -> InlineKeyboard
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-@router.callback_query(F.data.startswith("broadcast:"))
-async def handle_broadcast_selection(callback_query: CallbackQuery, bot: Bot):
-    """Обрабатывает выбор уведомления для рассылки и делает рассылку"""
+@router.callback_query(F.data.startswith("broadcast_preview:"))
+async def handle_broadcast_preview(callback_query: CallbackQuery, bot: Bot):
+    """Обрабатывает выбор уведомления для предварительного просмотра"""
     try:
         # Извлекаем ID выбранного уведомления
-        notification_id = callback_query.data.replace("broadcast:", "")
+        notification_id = callback_query.data.replace("broadcast_preview:", "")
+
+        # Получаем данные уведомления
+        notifications = await get_broadcast_notifications()
+        selected_notification = next(
+            (n for n in notifications if n.get('_id') == notification_id),
+            None
+        )
+
+        if not selected_notification:
+            await callback_query.answer("Уведомление не найдено", show_alert=True)
+            return
+
+        # Убираем клавиатуру
+        await callback_query.message.edit_reply_markup(reply_markup=None)
+
+        # Отправляем тестовое уведомление администратору
+        await callback_query.message.answer(
+            f"ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР: {selected_notification.get('Name', 'Без названия')} ⬇️"
+        )
+
+        # Отправляем контент уведомления администратору
+        await send_test_notification_to_admin(callback_query.from_user.id, selected_notification, bot)
+
+        # Создаем клавиатуру для подтверждения рассылки
+        confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Отправить всем",
+                    callback_data=f"broadcast_confirm:{notification_id}"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data="broadcast_cancel"
+                )
+            ]
+        ])
+
+        await callback_query.message.answer(
+            "Вот ваше уведомление ⬆️ Ознакомьтесь, пожалуйста.\n\n"
+            "Отправить это уведомление всем пользователям?",
+            reply_markup=confirmation_keyboard
+        )
+
+        await callback_query.answer()
+
+    except Exception as e:
+        logger.error(f"Broadcast preview error: {str(e)}")
+        await callback_query.answer("Ошибка при загрузке уведомления", show_alert=True)
+
+
+
+@router.callback_query(F.data.startswith("broadcast_confirm:"))
+async def handle_broadcast_confirmation(callback_query: CallbackQuery, bot: Bot):
+    """Обрабатывает подтверждение рассылки"""
+    try:
+        # Извлекаем ID уведомления
+        notification_id = callback_query.data.replace("broadcast_confirm:", "")
 
         # Получаем данные уведомления
         notifications = await get_broadcast_notifications()
@@ -96,14 +153,14 @@ async def handle_broadcast_selection(callback_query: CallbackQuery, bot: Bot):
         success = await send_broadcast_to_all_users(selected_notification, bot)
 
         if success:
-            await callback_query.message.answer("✅ Рассылка завершена!")
+            await callback_query.message.answer("Рассылка завершена!")
         else:
-            await callback_query.message.answer("❌ Ошибка при рассылке")
+            await callback_query.message.answer("Ошибка при рассылке")
 
         await callback_query.answer()
 
     except Exception as e:
-        logger.error(f"Broadcast selection error: {str(e)}")
+        logger.error(f"Broadcast confirmation error: {str(e)}")
         await callback_query.answer("Ошибка при запуске рассылки", show_alert=True)
 
 
@@ -127,6 +184,26 @@ async def handle_broadcast_cancel(callback_query: CallbackQuery):
     await callback_query.answer()
 
 
+async def send_test_notification_to_admin(admin_id: int, notification: Dict, bot: Bot):
+    """Отправляет тестовое уведомление администратору для проверки"""
+    try:
+        # Подготавливаем контент
+        content, file_data, filename = await prepare_notification_content(notification)
+
+        # Отправляем файл (если есть)
+        if file_data:
+            await send_telegram_file(admin_id, file_data, filename, bot)
+
+        # Отправляем контент
+        await send_telegram_content(admin_id, content, bot)
+
+        logger.info(f"Тестовое уведомление отправлено администратору {admin_id}")
+
+    except Exception as e:
+        logger.error(f"Ошибка отправки тестового уведомления администратору {admin_id}: {str(e)}")
+        await bot.send_message(admin_id, "Ошибка при загрузке контента уведомления")
+
+
 async def send_broadcast_to_all_users(notification: Dict, bot: Bot) -> bool:
     """Отправляет уведомление всем активным пользователям"""
     try:
@@ -140,7 +217,7 @@ async def send_broadcast_to_all_users(notification: Dict, bot: Bot) -> bool:
         # Создаем клавиатуру с кнопкой (один раз для всех пользователей)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
-                text="Ок 👍 Вернуться в меню",
+                text="Ок 👍 вернуться в меню",
                 callback_data="broadcast_back_to_menu"
             )
         ]])
