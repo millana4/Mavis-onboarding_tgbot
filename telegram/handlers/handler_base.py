@@ -63,7 +63,7 @@ async def handle_contact(message: types.Message):
         await start_navigation(message=message)
     else:
         await message.answer(
-            "🚫 Ваш номер телефона не найден в системе. Чтобы получить доступ в бот, обратитесь, пожалуйста, к эйчар-менеджеру.",
+            "🚫 Ваш номер телефона не найден в системе. Чтобы получить доступ в бот, обратитесь, пожалуйста, к администратору.",
             reply_markup=ReplyKeyboardRemove()
         )
 
@@ -133,6 +133,8 @@ async def process_back_callback(callback_query: types.CallbackQuery):
     """Обработчик кнопки 'Назад'"""
     try:
         user_id = callback_query.from_user.id
+
+        logger.info(f"Сработал обычный «Назад» из process_back_callback")
 
         # Проверяем права доступа и выходим если нет доступа
         has_access = await check_access(callback_query=callback_query)

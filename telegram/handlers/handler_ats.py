@@ -1,10 +1,12 @@
+import asyncio
 import logging
 import pprint
 from typing import List, Dict
 
-from aiogram import Router, types, F
+from aiogram import Router, types, F, Bot
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
+from config import Config
 from app.services.fsm import state_manager, AppStates
 from app.services.ats import give_employee_data, format_employee_text
 from app.seatable_api.api_ats import get_employees, get_department_list
@@ -17,6 +19,8 @@ from telegram.utils import check_access
 router = Router()
 logger = logging.getLogger(__name__)
 
+# Таймер, чтобы удалить на клиенте из истории имена сотрудников
+AUTODELETE_TIMER = 3600
 
 # Хендлер для кнопки со справочником сотрудников
 @router.callback_query(lambda c: c.data.startswith('ats:'))
@@ -24,11 +28,6 @@ async def process_ats_callback(callback_query: types.CallbackQuery):
     """Обрабатывает нажатие на кнопку со справочником"""
     try:
         user_id = callback_query.from_user.id
-
-        # Проверяем права доступа и выходим если нет доступа
-        has_access = await check_access(callback_query=callback_query)
-        if not has_access:
-            return
 
         # Получаем и обновляем состояние
         ats_tag = callback_query.data.split(':')[1]
@@ -57,22 +56,46 @@ async def process_ats_callback(callback_query: types.CallbackQuery):
         await callback_query.answer("Ошибка открытия справочника", show_alert=True)
 
 
+# Обработчик текстового ввода в состоянии выбора типа поиска — запускает поиск по ФИО
+@router.message(F.text, F.content_type == 'text', SearchTypeFilter())
+async def handle_text_input_during_search_selection(message: Message):
+    """
+    Обрабатывает неожидаемое действие пользователя.
+    Когда бот ждет выбора типа поиска, пользователь не выбирает тип, а сразу вводит имя.
+    Тогда эта функция автоматически запускает поиск по ФИО.
+    """
+    try:
+        user_id = message.from_user.id
+
+        # Автоматически запускаем поиск по ФИО
+        search_query = message.text.strip()
+
+        if not search_query:
+            await message.answer("Пожалуйста, введите ФИО сотрудника:")
+            return
+
+        logger.info(f"Автоматический поиск по ФИО: {search_query}")
+
+        # Получаем данные сотрудников
+        employees = await get_employees()
+
+        # Выполняем поиск
+        searched_employees = await give_employee_data("Name/Department", search_query, employees)
+
+        # Показываем результаты
+        await show_employee(searched_employees, message)
+
+    except Exception as e:
+        logger.error(f"Auto name search error: {str(e)}", exc_info=True)
+        await message.answer("Ошибка при обработке запроса")
+
+
 # Обработчик выбора "Искать по ФИО"
 @router.callback_query(lambda c: c.data == "search_by_name")
 async def handle_name_search(callback_query: types.CallbackQuery):
     """Обрабатывает выбор поиска по ФИО"""
     try:
         user_id = callback_query.from_user.id
-
-        # Проверяем права доступа и выходим если нет доступа
-        has_access = await check_access(callback_query=callback_query)
-        if not has_access:
-            return
-
-        # Проверяем, что пользователь в правильном состоянии
-        user_data = await state_manager.get_data(user_id)
-        if user_data.get('current_state') != AppStates.WAITING_FOR_SEARCH_TYPE:
-            return
 
         # Убираем инлайн-клавиатуру
         await callback_query.message.edit_reply_markup(reply_markup=None)
@@ -101,12 +124,7 @@ async def process_name_input(message: Message):
     try:
         user_id = message.from_user.id
 
-        # Проверяем права доступа и выходим если нет доступа
-        has_access = await check_access(message=message)
-        if not has_access:
-            return
-
-            # Проверяем, что пользователь в правильном состоянии
+        # Проверяем, что пользователь в правильном состоянии
         user_data = await state_manager.get_data(user_id)
         if user_data.get('current_state') != AppStates.WAITING_FOR_NAME_SEARCH:
             return
@@ -134,101 +152,6 @@ async def process_name_input(message: Message):
         await message.answer("Ошибка при обработке запроса")
 
 
-# Обработчик текстового ввода в состоянии выбора типа поиска (автоматический запуск поиска по ФИО)
-@router.message(F.text, F.content_type == 'text', SearchTypeFilter())
-async def handle_text_input_during_search_selection(message: Message):
-    """Обрабатывает текстовый ввод когда бот ждет выбора типа поиска - автоматически запускает поиск по ФИО"""
-    try:
-        user_id = message.from_user.id
-
-        # Проверяем права доступа и выходим если нет доступа
-        has_access = await check_access(message=message)
-        if not has_access:
-            return
-
-        # Автоматически запускаем поиск по ФИО
-        search_query = message.text.strip()
-
-        if not search_query:
-            await message.answer("Пожалуйста, введите ФИО сотрудника:")
-            return
-
-        logger.info(f"Автоматический поиск по ФИО: {search_query}")
-
-        # Получаем данные сотрудников
-        employees = await get_employees()
-
-        # Выполняем поиск
-        searched_employees = await give_employee_data("Name/Department", search_query, employees)
-
-        # Показываем результаты
-        await show_employee(searched_employees, message)
-
-    except Exception as e:
-        logger.error(f"Auto name search error: {str(e)}", exc_info=True)
-        await message.answer("Ошибка при обработке запроса")
-
-
-async def show_employee(searched_employees: List[Dict], message: Message):
-    """
-    Формирует сообщение с результатами поиска сотрудников и выводит его в чат.
-    """
-    user_id = message.from_user.id
-
-    # Если ничего не нашли
-    if not searched_employees:
-        # Возвращаем к выбору типа поиска
-        await message.answer(
-            "К сожалению, ничего не нашли. Попробуйте другой запрос или выберите другой способ поиска:",
-            reply_markup=SEARCH_TYPE_KEYBOARD
-        )
-        await state_manager.update_data(user_id, current_state=AppStates.WAITING_FOR_SEARCH_TYPE)
-        return
-
-    text_blocks = []
-
-    # Если один результат и есть фото
-    if len(searched_employees) == 1:
-        emp = searched_employees[0]
-        photo_urls = emp.get("Photo", [])
-        text = format_employee_text(emp)
-
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="search_back")]]
-        )
-
-        if photo_urls:
-            await message.answer_photo(
-                photo=photo_urls[0],
-                caption=text,
-                parse_mode="HTML",
-                reply_markup=keyboard
-            )
-        else:
-            await message.answer(
-                text,
-                parse_mode="HTML",
-                reply_markup=keyboard
-            )
-
-    else:
-        # Несколько сотрудников — фото не показываем
-        for emp in searched_employees:
-            text_blocks.append(format_employee_text(emp))
-
-        full_text = "\n\n".join(text_blocks)
-
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="search_back")]]
-        )
-
-        await message.answer(
-            full_text,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-
-
 # Обработчик выбора "Искать по отделу"
 @router.callback_query(lambda c: c.data == "search_by_department")
 async def handle_department_search(callback_query: types.CallbackQuery):
@@ -245,7 +168,7 @@ async def handle_department_search(callback_query: types.CallbackQuery):
         if user_data.get('current_state') != AppStates.WAITING_FOR_SEARCH_TYPE:
             return
 
-        # Убираем инлайн-клавиатуру
+        # Убираем инлайн-клавиатуру типа поиска
         await callback_query.message.edit_reply_markup(reply_markup=None)
 
         # Создаём инлайн-клавиатуру с отделами
@@ -306,11 +229,6 @@ async def process_department_input(callback_query: types.CallbackQuery):
     try:
         user_id = callback_query.from_user.id
 
-        # Проверяем права доступа и выходим если нет доступа
-        has_access = await check_access(callback_query=callback_query)
-        if not has_access:
-            return
-
         # Проверяем, что пользователь в правильном состоянии
         user_data = await state_manager.get_data(user_id)
         if user_data.get('current_state') != AppStates.WAITING_FOR_DEPARTMENT_SEARCH:
@@ -340,12 +258,90 @@ async def process_department_input(callback_query: types.CallbackQuery):
         await callback_query.message.answer("Ошибка при обработке запроса телефонов отдела")
 
 
-# Обработчик кнопки "Назад" из состояния выбора типа поиска
+async def show_employee(searched_employees: List[Dict], message: Message):
+    """
+    Формирует сообщение с результатами поиска сотрудников и выводит его в чат.
+    """
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    bot = message.bot
+    sent_message = None
+
+    # Проверяем права доступа и выходим если нет доступа
+    has_access = await check_access(message=message)
+    if not has_access:
+        return
+
+    # Если ничего не нашли
+    if not searched_employees:
+        # Возвращаем к выбору типа поиска
+        sent_message = await message.answer(
+            "К сожалению, ничего не нашли. Попробуйте другой запрос или выберите другой способ поиска:",
+            reply_markup=SEARCH_TYPE_KEYBOARD
+        )
+        await state_manager.update_data(user_id, current_state=AppStates.WAITING_FOR_SEARCH_TYPE)
+        return
+
+    text_blocks = []
+
+    # Если один результат и есть фото
+    if len(searched_employees) == 1:
+        emp = searched_employees[0]
+        photo_urls = emp.get("Photo", [])
+        text = format_employee_text(emp)
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="search_back")]]
+        )
+
+        if photo_urls:
+            sent_message = await message.answer_photo(
+                photo=photo_urls[0],
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            sent_message = await message.answer(
+                text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+
+    else:
+        # Несколько сотрудников — фото не показываем
+        for emp in searched_employees:
+            text_blocks.append(format_employee_text(emp))
+
+        full_text = "\n\n".join(text_blocks)
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="search_back")]]
+        )
+
+        sent_message = await message.answer(
+            full_text,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+
+    # Ставим таймер, чтобы удалить из истории данные сотрудников
+    if sent_message and searched_employees:
+        logger.info(f"Вызываю таймер для сообщения {sent_message.message_id}")
+        asyncio.create_task(delete_personal_data(bot, chat_id, sent_message.message_id, AUTODELETE_TIMER))
+    else:
+        logger.warning(
+            f"Ошибка: таймер НЕ установлен: sent_message={sent_message is not None}, searched_employees={len(searched_employees) if searched_employees else 0}")
+
+
+# Обработчик кнопки "Назад" из результатов поиска
 @router.callback_query(F.data == "search_back")
 async def handle_search_back(callback: types.CallbackQuery):
     """Обрабатывает кнопку Назад из результатов поиска — возвращает к выбору типа поиска"""
     try:
         user_id = callback.from_user.id
+
+        logger.info(f"Сработал «Назад» к типу поиска handle_search_back")
 
         # Проверяем права доступа и выходим если нет доступа
         has_access = await check_access(callback_query=callback)
@@ -372,3 +368,37 @@ async def handle_search_back(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"Search back (inline) error: {str(e)}", exc_info=True)
         await callback.answer("Ошибка при возврате", show_alert=True)
+
+
+async def delete_personal_data(bot: Bot, chat_id: int, message_id: int, delay_seconds: int):
+    """Удаляет сообщение через указанное количество секунд"""
+    try:
+        logger.info(f"Стартует таймер {delay_seconds} секунд для сообщения с данными сотрудников {message_id}")
+        await asyncio.sleep(delay_seconds)
+
+        # Пытаемся удалить сообщение с результатами
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            logger.info(f"По таймеру удален контент сообщения {message_id}")
+
+            # Обновляем состояние
+            await state_manager.update_data(
+                chat_id,
+                current_state=AppStates.WAITING_FOR_SEARCH_TYPE,
+                current_menu=Config.SEATABLE_EMPLOYEE_BOOK_ID
+            )
+
+            # Отправляем сообщение с выбором типа поиска
+            await bot.send_message(
+                chat_id=chat_id,
+                text="Как вы хотите найти сотрудника?",
+                reply_markup=SEARCH_TYPE_KEYBOARD
+            )
+
+            logger.info(f"Пользователь {chat_id} возвращен к выбору типа поиска после удаления контента")
+
+        except Exception as delete_error:
+            logger.info(f"Сообщение {message_id} уже удалено: {delete_error}")
+
+    except Exception as e:
+        logger.error(f"Ошибка удаления сообщения в таймере {message_id}: {e}")

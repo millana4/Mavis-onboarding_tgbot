@@ -18,7 +18,7 @@ async def check_user_cache(user_id: int) -> bool:
     Возвращает True если доступ разрешен, False если запрещен.
     """
     # Проверяем кэш
-    print(user_access_cache)
+    logger.info(f"Кеш: {user_access_cache}")
     if user_id in user_access_cache:
         logger.info(f"Cache hit for user {user_id}")
         return user_access_cache[user_id]

@@ -14,9 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 async def check_access (message: types.Message = None, callback_query: types.CallbackQuery = None) -> bool:
-    """Функция отвечает, если ли доступ у пользователя. Если нет, выводит сообщение
-    :rtype: None
-    """
+    """Функция отвечает, если ли доступ у пользователя. Если нет, выводит сообщение"""
     if callback_query:
         if not await check_user_cache(callback_query.from_user.id):
             await callback_query.answer(
