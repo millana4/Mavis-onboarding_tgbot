@@ -1,9 +1,11 @@
+import pprint
 import logging
 import aiohttp
 from typing import Dict
 
-from app.seatable_api.api_base import get_base_token
+from app.seatable_api.api_base import get_base_token, fetch_table
 from app.services.forms import prepare_data_to_post_in_seatable
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +13,17 @@ logger = logging.getLogger(__name__)
 async def save_form_answers(form_data: Dict) -> bool:
     """Сохраняет ответы формы в указанную таблицу Seatable"""
     logger.info("Начало сохранения ответов формы")
+
+    # Получаем данные пользователя из таблицы
+    users_data = await fetch_table(table_id=Config.SEATABLE_USERS_TABLE_ID, app='USER')
+
+    # Добавляем данные пользователя в form_data
+    for user in users_data:
+        current_id = str(user.get('ID_messenger'))
+        if current_id == str(form_data.get('user_id')):
+            form_data['user_fio'] = user.get('FIO')
+            form_data['user_phone'] = user.get('Phone')
+            break
 
     # Получаем токен доступа
     token_data = await get_base_token()

@@ -13,7 +13,7 @@ from app.seatable_api.api_forms import save_form_answers
 
 from telegram.handlers.filters import FormFilter
 from telegram.utils import check_access
-from telegram.utils import prepare_telegram_message
+from telegram.content import prepare_telegram_message
 
 
 router = Router()
@@ -234,11 +234,13 @@ async def finish_form(message: Message, form_data: Dict):
         parse_mode = content.get('parse_mode')
 
     # Создаем клавиатуру для возврата
+    main_menu_id = await state_manager.get_main_menu_id(user_id=user_id)
+
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(
                 text="⬅️ В главное меню",
-                callback_data=f"menu:{Config.SEATABLE_MAIN_MENU_ID}"
+                callback_data=f"menu:{main_menu_id}"
             )]
         ]
     )

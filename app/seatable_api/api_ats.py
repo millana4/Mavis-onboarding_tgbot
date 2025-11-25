@@ -27,7 +27,7 @@ async def get_employees() -> List[Dict]:
     ]
     """
     try:
-        employees_data = await fetch_table(Config.SEATABLE_EMPLOYEE_BOOK_ID, 'ATS')
+        employees_data = await fetch_table(table_id=Config.SEATABLE_EMPLOYEE_BOOK_ID, app='USER')
         # pprint.pprint(employees_data)
         return employees_data
     except Exception as e:
@@ -41,7 +41,7 @@ async def get_department_list() -> List[str]:
     Затем из метаданных формирует список отделов (только названия).
     """
     try:
-        ats_table_metadata = await get_metadata('ATS')
+        ats_table_metadata = await get_metadata(app='USER')
 
         # Достаём список таблиц
         tables_list = ats_table_metadata.get('metadata', {}).get('tables', [])

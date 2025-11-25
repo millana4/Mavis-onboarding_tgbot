@@ -89,6 +89,12 @@ async def prepare_data_to_post_in_seatable(form_data: Dict) -> Optional[Dict]:
         'Дата и время': formatted_date
     }
 
+    # Добавляем данные пользователя
+    if form_data.get('user_fio'):
+        row_data['ФИО сотрудника'] = form_data['user_fio']
+    if form_data.get('user_phone'):
+        row_data['Телефон'] = form_data['user_phone']
+
     # Добавляем вопросы и ответы
     for question_data, answer in zip(form_data['questions'], form_data['answers']):
         question_text = question_data.get('Name', '')

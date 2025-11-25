@@ -1,8 +1,10 @@
 import logging
+from typing import Optional
+
 import aiohttp
 
 from config import Config
-from app.seatable_api.api_base import get_base_token
+from app.seatable_api.api_base import get_base_token, fetch_table
 from app.services.utils import normalize_phone
 
 logger = logging.getLogger(__name__)
@@ -10,11 +12,11 @@ logger = logging.getLogger(__name__)
 async def check_id_messenger(id_messenger: str) -> bool:
     """
     Функция для регистрации и получения доступа, а также для переподтверждения прав доступа и записи в кеш.
-    Проверяет наличие ID_messenger в таблице Users Seatable.
+    Проверяет наличие ID_messenger в базе пользователей в таблице Роли и доступы.
     Возвращает True если пользователь найден, False если нет.
     """
     try:
-        token_data = await get_base_token()
+        token_data = await get_base_token(app='USER')
         if not token_data:
             logger.error("Не удалось получить токен SeaTable")
             return False
@@ -37,16 +39,14 @@ async def check_id_messenger(id_messenger: str) -> bool:
                 data = await response.json()
                 """
                 Пример data:
-                {'rows': 
-                    [
-                        {'_id': 'HiQYOMv4SLSsSMF_EpGpOg', 
-                        '_mtime': '2025-07-31T11:52:03.380+00:00', 
-                        '_ctime': '2025-07-08T11:58:08.914+00:00', 
-                        'Name': 'usertest01_seller', 
-                        'phone': '+7981ХХХХХХХ', 
-                        'mailboxes': ['Rp5djUppTcqM1LQO_3x_gg', 'FrwMkbJJSfejzUb7a6RdoQ']
-                        },
-                    ]
+                    [{'FIO': 'kit_company_account',
+                      'ID_messenger': 'ХХХХХХХХХХХ',
+                      'Phone': '+7ХХХХХХХХХХ',
+                      'Role': 'newcomer',
+                      '_ctime': '2025-11-24T08:13:29.157+00:00',
+                      '_id': 'VbPzvSVARc6Gff-qO_C8LA',
+                      '_mtime': '2025-11-25T07:08:27.303+00:00',
+                      'Админы': ['WEkWAuJ5StKe-kaNf4cnMA']},
                 """
 
                 # Ищем пользователя с совпадающим id_messenger
@@ -70,7 +70,7 @@ async def register_id_messenger(phone: str, id_messenger: str) -> bool:
     """
     try:
         # Получаем токен
-        token_data = await get_base_token()
+        token_data = await get_base_token(app='USER')
         if not token_data:
             logger.error("Не удалось получить токен SeaTable")
             return False
@@ -151,3 +151,29 @@ async def register_id_messenger(phone: str, id_messenger: str) -> bool:
     except Exception as e:
         logger.error(f"Критическая ошибка: {str(e)}", exc_info=True)
         return False
+
+
+async def get_role_from_st(user_id: str) -> Optional[str]:
+    """Получает роль пользователя из Seatable"""
+    try:
+        # Получаем данные пользователя из таблицы
+        users_data = await fetch_table(table_id=Config.SEATABLE_USERS_TABLE_ID, app='USER')
+
+        logger.info(f"Ищем пользователя с ID_messenger: {user_id} в таблице доступов и ролей, чтобы определить роль")
+
+        for i, user in enumerate(users_data):
+            current_id = str(user.get('ID_messenger'))
+            search_id = str(user_id)
+
+            if current_id == search_id:
+                role = user.get('Role')
+                logger.info(f"Найдены пользователь {i}: {user.get('FIO')}, и его роль {role}")
+                return role
+
+        logger.warning(f"Пользователь {user_id} не найден в таблице")
+        return None
+
+    except Exception as e:
+        logger.error(f"Ошибка получения роли для {user_id}: {str(e)}", exc_info=True)
+        return None
+

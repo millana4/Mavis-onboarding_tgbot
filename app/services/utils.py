@@ -1,4 +1,8 @@
 import re
+import logging
+from typing import List, Dict
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_phone(raw: str | None) -> str | None:

@@ -5,21 +5,27 @@ from typing import List, Dict, Tuple
 
 from config import Config
 from app.seatable_api.api_base import fetch_table
-from telegram.utils import prepare_telegram_message
+from telegram.utils import check_access
+from telegram.content import prepare_telegram_message
 
 
 logger = logging.getLogger(__name__)
 
 
+
 async def is_user_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь администратором"""
     try:
-        users = await fetch_table(Config.SEATABLE_USERS_TABLE_ID)
+        has_access = await check_access(user_id)
+        if not has_access:
+            return False
+
+        users = await fetch_table(table_id=Config.SEATABLE_ADMIN_TABLE_ID, app='USER')
         user = next(
             (u for u in users if str(u.get('ID_messenger')) == str(user_id)),
             None
         )
-        return user and user.get('Admin') is True
+        return user and user.get('Access') is True
     except Exception as e:
         logger.error(f"Error checking admin rights for {user_id}: {str(e)}")
         return False
@@ -27,12 +33,12 @@ async def is_user_admin(user_id: int) -> bool:
 
 async def get_broadcast_notifications() -> List[Dict]:
     """Получает список уведомлений для рассылки"""
-    return await fetch_table(Config.BROADCAST_TABLE_ID)
+    return await fetch_table(table_id=Config.BROADCAST_TABLE_ID, app='HR')
 
 
 async def get_active_users() -> List[Dict]:
     """Получает список активных пользователей"""
-    users = await fetch_table(Config.SEATABLE_USERS_TABLE_ID)
+    users = await fetch_table(table_id=Config.SEATABLE_USERS_TABLE_ID, app='USER')
     return [user for user in users if user.get('ID_messenger')]
 
 

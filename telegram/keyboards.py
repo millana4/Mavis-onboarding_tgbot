@@ -10,7 +10,7 @@ share_contact_kb = ReplyKeyboardMarkup(
 
 # Клавиатура для выбора типа поиска в справочнике сотрудников
 SEARCH_TYPE_KEYBOARD = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="👩‍🦳 Искать по ФИО", callback_data="search_by_name")],
-    [InlineKeyboardButton(text="⛩ Искать по отделу", callback_data="search_by_department")],
+    [InlineKeyboardButton(text="Искать по ФИО", callback_data="search_by_name")],
+    [InlineKeyboardButton(text="Искать по отделу", callback_data="search_by_department")],
     [InlineKeyboardButton(text="⬅️ Назад", callback_data="back")]
 ])

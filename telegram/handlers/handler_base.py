@@ -8,12 +8,13 @@ from config import Config
 
 from app.services.utils import normalize_phone
 from app.services.fsm import state_manager, AppStates
-from app.seatable_api.api_auth import register_id_messenger, check_id_messenger
+from app.seatable_api.api_auth import register_id_messenger, check_id_messenger, get_role_from_st
 from app.seatable_api.api_base import fetch_table
 
 from telegram.keyboards import share_contact_kb
 from telegram.handlers.handler_table import handle_content_button, handle_table_menu
-from telegram.utils import prepare_telegram_message, check_access
+from telegram.utils import check_access
+from telegram.content import prepare_telegram_message
 
 
 # Создаем роутер
@@ -81,16 +82,30 @@ async def start_navigation(message: types.Message):
         if not has_access:
             return
 
-        # Инициализация состояния дли переходов по меню
+        # Определяем роль пользователя по таблице Seatable
+        user_role = await get_role_from_st(user_id)
+
+        # Записываем роль в FSM. Если функция определения не сработала и вернула None, то устанавливаем действующего.
+        if user_role is not None:
+            await state_manager.set_user_role(user_id, user_role)
+        else:
+            await state_manager.set_user_role(user_id, "employee")
+
+        # Получаем ID главного меню для роли пользователя
+        main_menu_id = await state_manager.get_main_menu_id(user_id)
+        logger.info(f"Main menu ID for user {user_id}: {main_menu_id}")
+
+        # Инициализация состояния для переходов по меню
         await state_manager.update_data(
             user_id,
-            current_menu=Config.SEATABLE_MAIN_MENU_ID,
+            current_menu=main_menu_id,
             navigation_history=[],
-            current_state=AppStates.CURRENT_MENU
+            current_state=AppStates.CURRENT_MENU,
+            user_role=user_role if user_role else "employee"
         )
 
         # Получаем контент и клавиатуру для главного меню
-        content, keyboard = await handle_table_menu(Config.SEATABLE_MAIN_MENU_ID, message=message)
+        content, keyboard = await handle_table_menu(main_menu_id, str(user_id), message)
 
         kwargs = {
             'reply_markup': keyboard,
@@ -207,7 +222,7 @@ async def process_back_callback(callback_query: types.CallbackQuery):
                         reply_markup=keyboard
                     )
         else:
-            content, keyboard = await handle_table_menu(previous_menu)
+            content, keyboard = await handle_table_menu(table_id=previous_menu, user_id=str(user_id))
 
             menu_text = content.get('text', '')
             if content and content.get('image_url'):

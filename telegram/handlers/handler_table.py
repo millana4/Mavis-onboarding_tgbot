@@ -6,21 +6,19 @@ from aiogram import Router, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
 from config import Config
-from app.services.navigation import process_content_part
 from app.services.fsm import state_manager
 from app.services.forms import is_form
 from app.seatable_api.api_base import fetch_table
 
 from telegram.handlers.handler_form import process_form
 from telegram.utils import check_access
-from telegram.utils import prepare_telegram_message, download_and_send_file
+from telegram.content import prepare_telegram_message, download_and_send_file, process_content_part
 
 
 router = Router()
 logger = logging.getLogger(__name__)
 
-async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
-                          message: Message = None):
+async def handle_table_menu(table_id: str, user_id: str, message: Message = None):
     """
     Обрабатывает данные таблицы и создает Telegram-сообщение с меню или формой
     """
@@ -47,7 +45,7 @@ async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
         logger.info(f"Таблица {table_id} - обычное меню")
 
         content_part = await process_content_part(table_data)
-        keyboard = await create_menu_keyboard(table_data, table_id)
+        keyboard = await create_menu_keyboard(table_data, table_id, user_id=user_id)
 
         if 'parse_mode' not in content_part:
             content_part['parse_mode'] = 'HTML'
@@ -58,7 +56,7 @@ async def handle_table_menu(table_id: str = Config.SEATABLE_MAIN_MENU_ID,
 
         return content_part, keyboard
 
-async def create_menu_keyboard(table_data: List[Dict], current_table_id: str) -> InlineKeyboardMarkup:
+async def create_menu_keyboard(table_data: List[Dict], current_table_id: str, user_id: str) -> InlineKeyboardMarkup:
     """Создает инлайн-клавиатуру с кнопками"""
     inline_keyboard = []
 
@@ -67,7 +65,7 @@ async def create_menu_keyboard(table_data: List[Dict], current_table_id: str) ->
         if not name or name == 'Info':
             continue
 
-        if row.get('Submenu_link') and Config.SEATABLE_ATS_APP in row.get('Submenu_link'):
+        if row.get('Submenu_link') and Config.SEATABLE_EMPLOYEE_BOOK_ID in row.get('Submenu_link'):
             # В Submenu_link может быть ссылка на справочник сотрудников
             submenu_id = re.search(r'tid=([^&]+)', row['Submenu_link']).group(1)
             inline_keyboard.append([InlineKeyboardButton(
@@ -93,7 +91,9 @@ async def create_menu_keyboard(table_data: List[Dict], current_table_id: str) ->
             )])
 
     # Добавляем кнопку "Назад" только если это не главное меню
-    if current_table_id != Config.SEATABLE_MAIN_MENU_ID:
+    main_menu_id = await state_manager.get_main_menu_id(user_id=int(user_id))
+
+    if current_table_id != main_menu_id:
         inline_keyboard.append([InlineKeyboardButton(
             text="⬅️ Назад",
             callback_data="back"
@@ -122,6 +122,7 @@ async def process_menu_callback(callback_query: types.CallbackQuery):
         state = await state_manager.get_current_menu(user_id)
         content, keyboard = await handle_table_menu(
             new_table_id,
+            str(user_id),
             message=callback_query.message,
         )
 
@@ -176,7 +177,7 @@ async def process_content_callback(callback_query: types.CallbackQuery):
         await state_manager.navigate_to_menu(user_id, content_key)
 
         # Получаем данные контента
-        table_data = await fetch_table(table_id)
+        table_data = await fetch_table(table_id=table_id, app="HR")
         row = next((r for r in table_data if r['_id'] == row_id), None)
 
         if not row:

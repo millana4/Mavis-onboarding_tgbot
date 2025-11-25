@@ -15,13 +15,13 @@ _token_app_cache: Dict[str, Optional[Dict]] = {
     "timestamp": 0
 }
 
-# Глобальный кэш токена телефонного справочника
-_token_ats_cache: Dict[str, Optional[Dict]] = {
+# Глобальный кэш токена базы пользователей
+_token_user_cache: Dict[str, Optional[Dict]] = {
     "token_data": None,
     "timestamp": 0
 }
 
-_TOKEN_TTL = 172800  # время жизни токена в секундах — 48 часов
+_TOKEN_TTL = 244800  # время жизни токена в секундах — 68 часов
 
 
 async def get_base_token(app='HR') -> Optional[Dict]:
@@ -29,7 +29,7 @@ async def get_base_token(app='HR') -> Optional[Dict]:
     Получает временный токен для синхронизации по Апи.
 
     На вход нужно передать:
-    - Если нужен токен для телефонного справочника, передать 'ATS'.
+    - Если нужен токен для базы пользователей, передать 'USER'.
     - Если нужен токен для основного приложения, то либо передать 'HR', либо ничего не передавать.
 
     Возвращает словарь:
@@ -47,9 +47,9 @@ async def get_base_token(app='HR') -> Optional[Dict]:
     # в зависимости от того, что передано на вход
     now = time.time()
 
-    if app == 'ATS':
-        cached = _token_ats_cache["token_data"]
-        cached_time = _token_ats_cache["timestamp"]
+    if app == 'USER':
+        cached = _token_user_cache["token_data"]
+        cached_time = _token_user_cache["timestamp"]
     else:
         cached = _token_app_cache["token_data"]
         cached_time = _token_app_cache["timestamp"]
@@ -60,11 +60,11 @@ async def get_base_token(app='HR') -> Optional[Dict]:
     # URL одинаковый для обоих приложений
     url = f"{Config.SEATABLE_SERVER}/api/v2.1/dtable/app-access-token/"
 
-    # В заголовок передаем ключ API для основного приложения HR или для телефонного справочника
-    if app == 'ATS':
+    # В заголовок передаем ключ API для основного приложения HR или для базы пользователей USER
+    if app == 'USER':
         headers = {
             "accept": "application/json",
-            "authorization": f"Bearer {Config.SEATABLE_API_ATS_TOKEN}"
+            "authorization": f"Bearer {Config.SEATABLE_API_USER_TOKEN}"
         }
     else:
         headers = {
@@ -80,9 +80,9 @@ async def get_base_token(app='HR') -> Optional[Dict]:
                 logger.debug("Base token successfully obtained and cached")
 
                 # Обновляем кэш
-                if app == 'ATS':
-                    _token_ats_cache["token_data"] = token_data
-                    _token_ats_cache["timestamp"] = now
+                if app == 'USER':
+                    _token_user_cache["token_data"] = token_data
+                    _token_user_cache["timestamp"] = now
                 else:
                     _token_app_cache["token_data"] = token_data
                     _token_app_cache["timestamp"] = now
@@ -103,9 +103,9 @@ async def fetch_table(table_id: str = '0000', app: str = "HR") -> List[Dict]:
     Аргументом принимает '_id'. В http таблицы указан как tid.
     Если _id при вызове не указан, то выставляет _id главного меню — 0000.
     """
-    # Запрашиваем токен для нужного приложения — Мавис-HR или телефонный справочник
-    if app == 'ATS':
-        token_data = await get_base_token('ATS')
+    # Запрашиваем токен для нужного приложения — Мавис-HR или база пользователей
+    if app == 'USER':
+        token_data = await get_base_token('USER')
     else:
         token_data = await get_base_token()
 
@@ -139,8 +139,8 @@ async def fetch_table(table_id: str = '0000', app: str = "HR") -> List[Dict]:
 async def get_metadata(app: str = "HR") -> Optional[Dict[str, str]]:
     """Функция возвращает метаданные любой таблицы."""
     # Запрашиваем токен для нужного приложения — Мавис-HR или телефонный справочник
-    if app == 'ATS':
-        token_data = await get_base_token('ATS')
+    if app == 'USER':
+        token_data = await get_base_token('USER')
     else:
         token_data = await get_base_token()
 
@@ -165,22 +165,22 @@ async def get_metadata(app: str = "HR") -> Optional[Dict[str, str]]:
 
 
 # Отладочный скрипт для вывода ответов json по API SeaTable
-# if __name__ == "__main__":
-#     async def main():
-#         print("БАЗОВЫЙ ТОКЕН")
-#         token_data = await get_base_token("ATS")
-#         pprint.pprint(token_data)
-#
-#         print("ТАБЛИЦА")
-#         menu_rows = await fetch_table('0000')
-#         pprint.pprint(menu_rows)
-#
-#         print("ДРУГАЯ ТАБЛИЦА")
-#         menu_rows = await fetch_table('Wxfy')
-#         pprint.pprint(menu_rows)
-#
-#         print("МЕТАДАННЫЕ ТАБЛИЦ")
-#         metadata = await get_metadata('ATS')
-#         pprint.pprint(metadata)
-#
-#     asyncio.run(main())
+if __name__ == "__main__":
+    async def main():
+        print("БАЗОВЫЙ ТОКЕН")
+        token_data = await get_base_token("USER")
+        pprint.pprint(token_data)
+
+        print("ТАБЛИЦА")
+        menu_rows = await fetch_table('0000')
+        pprint.pprint(menu_rows)
+
+        print("ДРУГАЯ ТАБЛИЦА")
+        menu_rows = await fetch_table(table_id='93ZW', app='USER')
+        pprint.pprint(menu_rows)
+
+        print("МЕТАДАННЫЕ ТАБЛИЦ")
+        metadata = await get_metadata('ATS')
+        pprint.pprint(metadata)
+
+    asyncio.run(main())
