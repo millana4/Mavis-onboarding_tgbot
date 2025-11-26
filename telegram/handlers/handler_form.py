@@ -77,15 +77,23 @@ async def get_form_question(form_state: Dict) -> Tuple[str, Optional[InlineKeybo
         if k.startswith('Answer_option_') and v is not None
     }
 
+    keyboard_buttons = []
+
+    # Если есть варианты ответа, добавляем их
+    if not question_data.get('Free_input', False) and answer_options:
+        for opt in answer_options.values():
+            keyboard_buttons.append([InlineKeyboardButton(text=opt, callback_data=f"form_opt:{opt}")])
+
+    keyboard_buttons.append([InlineKeyboardButton(
+        text="❌ Отменить обращение",
+        callback_data="form_cancel"
+    )])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
     # Если Free_input явно указан как True или есть варианты ответа
     if question_data.get('Free_input', False) is True or not answer_options:
-        return question_text, None  # Текстовый ответ
-
-    # Создаем кнопки для вариантов ответа
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=opt, callback_data=f"form_opt:{opt}")]
-        for opt in answer_options.values()
-    ])
+        return question_text, keyboard
 
     return question_text, keyboard
 
@@ -143,6 +151,17 @@ async def handle_text_answer(message: types.Message):
 
     # Обновляем данные через state_manager
     await state_manager.update_data(user_id, form_data=form_data)
+
+    # Удаляем предыдущее сообщение с кнопками (если есть)
+    if form_data.get('last_question_message_id'):
+        try:
+            await message.bot.edit_message_reply_markup(
+                chat_id=user_id,
+                message_id=form_data['last_question_message_id'],
+                reply_markup=None
+            )
+        except:
+            pass
 
     if form_data['current_question'] >= len(form_data['questions']):
         await finish_form(message, form_data)
@@ -254,3 +273,46 @@ async def finish_form(message: Message, form_data: Dict):
 
     # Очищаем состояние формы
     await state_manager.update_data(user_id, form_data=None, current_state=AppStates.CURRENT_MENU)
+
+    @router.callback_query(F.data == "form_cancel")
+    async def handle_form_cancel(callback: types.CallbackQuery):
+        """Обрабатывает отмену формы"""
+        user_id = callback.from_user.id
+        logger.info(f"Пользователь {user_id} отменил форму")
+
+        # Получаем данные пользователя
+        user_data = await state_manager.get_data(user_id)
+
+        # Очищаем состояние формы
+        await state_manager.update_data(
+            user_id,
+            form_data=None,
+            current_state=AppStates.CURRENT_MENU
+        )
+
+        # Получаем главное меню для возврата
+        main_menu_id = await state_manager.get_main_menu_id(user_id=user_id)
+
+        # Создаем клавиатуру для возврата в главное меню
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="⬅️ В главное меню",
+                    callback_data=f"menu:{main_menu_id}"
+                )]
+            ]
+        )
+
+        # Удаляем клавиатуру у предыдущего сообщения
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except:
+            pass
+
+        # Отправляем сообщение об отмене
+        await callback.message.answer(
+            "Обращение отменено. Ваши ответы не сохранены.",
+            reply_markup=keyboard
+        )
+
+        await callback.answer("Форма отменена")
