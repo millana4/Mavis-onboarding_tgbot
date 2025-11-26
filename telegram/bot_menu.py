@@ -42,7 +42,7 @@ async def set_main_menu(bot: Bot):
                         await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=int(user_id)))
                         logger.info(f"Admin commands set for user {user_id}")
                     else:
-                        # Удаляем админские команды для не-админов
+                        # Устанавливаем обычные команды для не-админов
                         await bot.set_my_commands(user_commands, scope=BotCommandScopeChat(chat_id=int(user_id)))
                         logger.info(f"User commands set for user {user_id}")
                 except Exception as e:

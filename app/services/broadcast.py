@@ -17,28 +17,10 @@ async def is_user_admin(user_id: int) -> bool:
         # 1. Получаем таблицу админов
         admins = await fetch_table(table_id=Config.SEATABLE_ADMIN_TABLE_ID, app='USER')
 
-        # 2. Ищем админа, у которого в ID_messenger есть ссылка на пользователя
-        admin_user = None
-        for admin in admins:
-            admin_messenger_ids = admin.get('ID_messenger', [])
-            if isinstance(admin_messenger_ids, list) and admin_messenger_ids:
-                # ID_messenger содержит список ID пользователей из таблицы пользователей
-                admin_user = admin
-                break
-
-        if not admin_user:
-            logger.info(f"Admin not found for user {user_id}")
-            return False
-
-        # 3. Проверяем доступ админа
-        if not admin_user.get('Access'):
-            logger.info(f"Admin {admin_user.get('FIO')} has no access rights")
-            return False
-
-        # 4. Получаем таблицу пользователей
+        # 2. Получаем таблицу пользователей
         users = await fetch_table(table_id=Config.SEATABLE_USERS_TABLE_ID, app='USER')
 
-        # 5. Ищем пользователя по ID мессенджера
+        # 3. Ищем пользователя по ID мессенджера
         target_user = next(
             (u for u in users if str(u.get('ID_messenger')) == str(user_id)),
             None
@@ -48,16 +30,26 @@ async def is_user_admin(user_id: int) -> bool:
             logger.info(f"User {user_id} not found in users table")
             return False
 
-        # 6. Проверяем, что ID пользователя совпадает с ID из списка админа
         target_user_id = target_user.get('_id')
-        admin_messenger_ids = admin_user.get('ID_messenger', [])
 
-        is_admin = target_user_id in admin_messenger_ids
+        # 4. Проверяем всех админов
+        for admin in admins:
+            # Проверяем доступ админа
+            if not admin.get('Access'):
+                continue
 
-        logger.info(f"Admin check: user_id={user_id}, target_user_id={target_user_id}, "
-                    f"admin_messenger_ids={admin_messenger_ids}, is_admin={is_admin}")
+            admin_messenger_ids = admin.get('ID_messenger', [])
+            if not isinstance(admin_messenger_ids, list):
+                continue
 
-        return is_admin
+            # Проверяем, что ID пользователя совпадает с ID из списка админа
+            if target_user_id in admin_messenger_ids:
+                logger.info(f"Admin check SUCCESS: user_id={user_id}, target_user_id={target_user_id}")
+                return True
+
+        logger.info(f"Admin check FAILED: user_id={user_id}, target_user_id={target_user_id} "
+                   f"not found in any admin list")
+        return False
 
     except Exception as e:
         logger.error(f"Error checking admin rights for {user_id}: {str(e)}", exc_info=True)
