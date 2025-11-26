@@ -1,6 +1,4 @@
 import logging
-from typing import Optional
-
 import aiohttp
 
 from config import Config
@@ -151,29 +149,4 @@ async def register_id_messenger(phone: str, id_messenger: str) -> bool:
     except Exception as e:
         logger.error(f"Критическая ошибка: {str(e)}", exc_info=True)
         return False
-
-
-async def get_role_from_st(user_id: str) -> Optional[str]:
-    """Получает роль пользователя из Seatable"""
-    try:
-        # Получаем данные пользователя из таблицы
-        users_data = await fetch_table(table_id=Config.SEATABLE_USERS_TABLE_ID, app='USER')
-
-        logger.info(f"Ищем пользователя с ID_messenger: {user_id} в таблице доступов и ролей, чтобы определить роль")
-
-        for i, user in enumerate(users_data):
-            current_id = str(user.get('ID_messenger'))
-            search_id = str(user_id)
-
-            if current_id == search_id:
-                role = user.get('Role')
-                logger.info(f"Найдены пользователь {i}: {user.get('FIO')}, и его роль {role}")
-                return role
-
-        logger.warning(f"Пользователь {user_id} не найден в таблице")
-        return None
-
-    except Exception as e:
-        logger.error(f"Ошибка получения роли для {user_id}: {str(e)}", exc_info=True)
-        return None
 

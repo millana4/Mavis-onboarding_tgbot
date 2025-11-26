@@ -67,6 +67,18 @@ async def handle_text_input_during_search_selection(message: Message):
     try:
         user_id = message.from_user.id
 
+        # Игнорировать команды меню
+        if message.text.startswith('/'):
+            return
+
+        # Убедимся, что пользователь находится в контексте справочника
+        user_data = await state_manager.get_data(user_id)
+        current_menu = user_data.get('current_menu')
+
+        # Проверяем, что текущее меню - это справочник сотрудников
+        if current_menu != Config.SEATABLE_EMPLOYEE_BOOK_ID:
+            return  # Игнорируем, если не в справочнике
+
         # Автоматически запускаем поиск по ФИО
         search_query = message.text.strip()
 

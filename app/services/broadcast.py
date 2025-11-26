@@ -5,7 +5,6 @@ import aiohttp
 from typing import List, Dict, Tuple
 from config import Config
 from app.seatable_api.api_base import fetch_table
-from telegram.utils import check_access
 from telegram.content import prepare_telegram_message
 
 

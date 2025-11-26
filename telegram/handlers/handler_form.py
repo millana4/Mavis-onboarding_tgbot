@@ -5,8 +5,6 @@ from typing import List, Dict, Optional, Tuple
 from aiogram import Router, types, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-from config import Config
-
 from app.services.forms import start_form_questions, complete_form
 from app.services.fsm import state_manager, AppStates
 from app.seatable_api.api_forms import save_form_answers
@@ -274,45 +272,45 @@ async def finish_form(message: Message, form_data: Dict):
     # Очищаем состояние формы
     await state_manager.update_data(user_id, form_data=None, current_state=AppStates.CURRENT_MENU)
 
-    @router.callback_query(F.data == "form_cancel")
-    async def handle_form_cancel(callback: types.CallbackQuery):
-        """Обрабатывает отмену формы"""
-        user_id = callback.from_user.id
-        logger.info(f"Пользователь {user_id} отменил форму")
+@router.callback_query(F.data == "form_cancel")
+async def handle_form_cancel(callback: types.CallbackQuery):
+    """Обрабатывает отмену формы"""
+    user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} отменил форму")
 
-        # Получаем данные пользователя
-        user_data = await state_manager.get_data(user_id)
+    # Получаем данные пользователя
+    user_data = await state_manager.get_data(user_id)
 
-        # Очищаем состояние формы
-        await state_manager.update_data(
-            user_id,
-            form_data=None,
-            current_state=AppStates.CURRENT_MENU
-        )
+    # Очищаем состояние формы
+    await state_manager.update_data(
+        user_id,
+        form_data=None,
+        current_state=AppStates.CURRENT_MENU
+    )
 
-        # Получаем главное меню для возврата
-        main_menu_id = await state_manager.get_main_menu_id(user_id=user_id)
+    # Получаем главное меню для возврата
+    main_menu_id = await state_manager.get_main_menu_id(user_id=user_id)
 
-        # Создаем клавиатуру для возврата в главное меню
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(
-                    text="⬅️ В главное меню",
-                    callback_data=f"menu:{main_menu_id}"
-                )]
-            ]
-        )
+    # Создаем клавиатуру для возврата в главное меню
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="⬅️ В главное меню",
+                callback_data=f"menu:{main_menu_id}"
+            )]
+        ]
+    )
 
-        # Удаляем клавиатуру у предыдущего сообщения
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except:
-            pass
+    # Удаляем клавиатуру у предыдущего сообщения
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except:
+        pass
 
-        # Отправляем сообщение об отмене
-        await callback.message.answer(
-            "Обращение отменено. Ваши ответы не сохранены.",
-            reply_markup=keyboard
-        )
+    # Отправляем сообщение об отмене
+    await callback.message.answer(
+        "Обращение отменено. Ваши ответы не сохранены.",
+        reply_markup=keyboard
+    )
 
-        await callback.answer("Форма отменена")
+    await callback.answer("Форма отменена")

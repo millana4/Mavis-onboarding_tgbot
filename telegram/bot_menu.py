@@ -1,0 +1,52 @@
+import logging
+from aiogram import Bot
+from aiogram.types import BotCommand, BotCommandScopeChat
+
+logger = logging.getLogger(__name__)
+
+async def set_main_menu(bot: Bot):
+    """Устанавливает главное меню команд в зависимости от роли пользователя"""
+
+    # Команды для администраторов
+    admin_commands = [
+        BotCommand(command="/start", description="Перезапустить бота"),
+        BotCommand(command="/checkout_newcomer", description="Режим новичка"),
+        BotCommand(command="/checkout_employee", description="Режим действующего сотрудника"),
+        BotCommand(command="/broadcast", description="Рассылка уведомлений")
+    ]
+
+    # Команды для обычных пользователей
+    user_commands = [
+        BotCommand(command="/start", description="Перезапустить бота"),
+        BotCommand(command="/support", description="Написать админу")
+    ]
+
+    # Устанавливаем команды по умолчанию для всех пользователей
+    await bot.set_my_commands(user_commands)
+
+    # Для админов установим отдельные команды
+    try:
+        from app.services.broadcast import is_user_admin
+        from config import Config
+
+        # Получаем список всех пользователей для установки команд админам
+        from app.seatable_api.api_base import fetch_table
+        users = await fetch_table(table_id=Config.SEATABLE_USERS_TABLE_ID, app='USER')
+
+        for user in users:
+            user_id = user.get('ID_messenger')
+            if user_id:
+                try:
+                    if await is_user_admin(int(user_id)):
+                        # Устанавливаем админские команды
+                        await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=int(user_id)))
+                        logger.info(f"Admin commands set for user {user_id}")
+                    else:
+                        # Удаляем админские команды для не-админов
+                        await bot.set_my_commands(user_commands, scope=BotCommandScopeChat(chat_id=int(user_id)))
+                        logger.info(f"User commands set for user {user_id}")
+                except Exception as e:
+                    logger.error(f"Error setting commands for {user_id}: {e}")
+
+    except Exception as e:
+        logger.error(f"Error setting admin commands: {e}")

@@ -4,17 +4,17 @@ from aiogram import Router, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardRemove
 
-from config import Config
-
 from app.services.utils import normalize_phone
 from app.services.fsm import state_manager, AppStates
-from app.seatable_api.api_auth import register_id_messenger, check_id_messenger, get_role_from_st
+from app.seatable_api.api_auth import register_id_messenger, check_id_messenger
+from app.seatable_api.api_users import get_role_from_st
 from app.seatable_api.api_base import fetch_table
 
 from telegram.keyboards import share_contact_kb
 from telegram.handlers.handler_table import handle_content_button, handle_table_menu
 from telegram.utils import check_access
 from telegram.content import prepare_telegram_message
+from telegram.bot_menu import set_main_menu
 
 
 # Создаем роутер
@@ -33,6 +33,8 @@ async def cmd_start(message: types.Message):
     logger.info(f"Пользователь {user_id} авторизован: {already_member}")
 
     if already_member:
+        # Актуализируем меню в соответствии с правами
+        await set_main_menu(message.bot)
         # Если пользователь есть в таблице, инициализируем навигацию
         await start_navigation(message=message)
     else:
