@@ -2,7 +2,13 @@ import logging
 from aiogram import Bot
 from aiogram.types import BotCommand, BotCommandScopeChat
 
+from config import Config
+from app.services.broadcast import is_user_admin
+from app.seatable_api.api_base import fetch_table
+
+
 logger = logging.getLogger(__name__)
+
 
 async def set_main_menu(bot: Bot):
     """Устанавливает главное меню команд в зависимости от роли пользователя"""
@@ -12,7 +18,8 @@ async def set_main_menu(bot: Bot):
         BotCommand(command="/start", description="Перезапустить бота"),
         BotCommand(command="/checkout_newcomer", description="Режим новичка"),
         BotCommand(command="/checkout_employee", description="Режим действующего сотрудника"),
-        BotCommand(command="/broadcast", description="Рассылка уведомлений")
+        BotCommand(command="/broadcast", description="Рассылка уведомлений"),
+        BotCommand(command="/scheduled_broadcasts", description="Посмотреть отложенные рассылки"),
     ]
 
     # Команды для обычных пользователей
@@ -26,11 +33,7 @@ async def set_main_menu(bot: Bot):
 
     # Для админов установим отдельные команды
     try:
-        from app.services.broadcast import is_user_admin
-        from config import Config
-
         # Получаем список всех пользователей для установки команд админам
-        from app.seatable_api.api_base import fetch_table
         users = await fetch_table(table_id=Config.SEATABLE_USERS_TABLE_ID, app='USER')
 
         for user in users:

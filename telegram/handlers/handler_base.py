@@ -29,14 +29,20 @@ async def cmd_start(message: types.Message):
     logger.info(f"Пользователь {user_id} нажал кнопку Старт")
 
     # Проверяем, есть ли пользователь с таким id_telegram
-    already_member = await check_id_messenger(user_id)
-    logger.info(f"Пользователь {user_id} авторизован: {already_member}")
+    has_access, current_role = await check_id_messenger(user_id)
+    logger.info(f"Пользователь {user_id} авторизован: {has_access}, роль: {current_role}")
 
-    if already_member:
-        # Актуализируем меню в соответствии с правами
-        await set_main_menu(message.bot)
+    if has_access:
+        # Получаем предыдущую роль из FSM (если есть)
+        previous_role = await state_manager.get_user_role(user_id)
+
+        # ВАЖНО: Если роль изменилась - сбрасываем навигацию
+        if previous_role and previous_role != current_role:
+            logger.info(f"Роль изменилась при старте: {previous_role} -> {current_role}, сбрасываем навигацию")
+            await state_manager.clear(user_id)
+
         # Если пользователь есть в таблице, инициализируем навигацию
-        await start_navigation(message=message)
+        await start_navigation(message=message, current_role=current_role)
     else:
         # Иначе просим поделиться контактом
         await message.answer(
@@ -62,8 +68,11 @@ async def handle_contact(message: types.Message):
             "🎉 Вы успешно авторизовались!",
             reply_markup=ReplyKeyboardRemove()
         )
-        # После успешной регистрации запускаем навигацию
-        await start_navigation(message=message)
+        # Получаем актуальную роль после регистрации
+        has_access, current_role = await check_id_messenger(user_id)
+
+        # После успешной регистрации запускаем навигацию с актуальной ролью
+        await start_navigation(message=message, current_role=current_role)
     else:
         await message.answer(
             "🚫 Ваш номер телефона не найден в системе. Чтобы получить доступ в бот, обратитесь, пожалуйста, к администратору.",
@@ -71,7 +80,7 @@ async def handle_contact(message: types.Message):
         )
 
 
-async def start_navigation(message: types.Message):
+async def start_navigation(message: types.Message, current_role: str = None):
     """Инициализирует FSM и показывает главное меню"""
     try:
         user_id = message.chat.id
@@ -84,8 +93,11 @@ async def start_navigation(message: types.Message):
         if not has_access:
             return
 
-        # Определяем роль пользователя по таблице Seatable
-        user_role = await get_role_from_st(user_id)
+        # Если роль не передана - определяем роль пользователя по таблице Seatable
+        if current_role is None:
+            user_role = await get_role_from_st(user_id)
+        else:
+            user_role = current_role
 
         # Записываем роль в FSM. Если функция определения не сработала и вернула None, то устанавливаем действующего.
         if user_role is not None:

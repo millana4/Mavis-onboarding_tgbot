@@ -4,6 +4,7 @@ import logging
 
 from app.seatable_api.api_users import change_user_role
 from app.services.fsm import state_manager, AppStates
+from app.services.cache import clear_user_role_cache, clear_user_access_cache
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,10 @@ async def handle_checkout_newcomer(message: Message):
     # Очищаем состояние FSM
     await state_manager.clear(user_id)
 
+    # Очищаем кеши доступа и ролей
+    await clear_user_role_cache(user_id)
+    await clear_user_access_cache(user_id)
+
     # Меняем роль в Seatable
     success = await change_user_role(user_id, "newcomer")
 
@@ -35,7 +40,7 @@ async def handle_checkout_newcomer(message: Message):
         # Получаем ID главного меню для новой роли
         main_menu_id = await state_manager.get_main_menu_id(user_id)
 
-        # Инициализируем навигацию с чистого листа
+        # Инициализируем навигацию заново
         await state_manager.update_data(
             user_id,
             current_menu=main_menu_id,
@@ -74,6 +79,10 @@ async def handle_checkout_employee(message: Message):
 
     # Очищаем состояние FSM
     await state_manager.clear(user_id)
+
+    # Очищаем кеши доступа и ролей
+    await clear_user_role_cache(user_id)
+    await clear_user_access_cache(user_id)
 
     # Меняем роль в Seatable
     success = await change_user_role(user_id, "employee")

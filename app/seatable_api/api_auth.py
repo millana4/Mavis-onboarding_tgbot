@@ -7,17 +7,17 @@ from app.services.utils import normalize_phone
 
 logger = logging.getLogger(__name__)
 
-async def check_id_messenger(id_messenger: str) -> bool:
+
+async def check_id_messenger(id_messenger: str) -> tuple[bool, str]:
     """
-    Функция для регистрации и получения доступа, а также для переподтверждения прав доступа и записи в кеш.
-    Проверяет наличие ID_messenger в базе пользователей в таблице Роли и доступы.
-    Возвращает True если пользователь найден, False если нет.
+    Функция для проверки доступа и получения роли пользователя.
+    Возвращает (has_access, role)
     """
     try:
         token_data = await get_base_token(app='USER')
         if not token_data:
             logger.error("Не удалось получить токен SeaTable")
-            return False
+            return False, "employee"  # default role
 
         base_url = f"{token_data['dtable_server']}api/v1/dtables/{token_data['dtable_uuid']}/rows/"
         headers = {
@@ -32,7 +32,7 @@ async def check_id_messenger(id_messenger: str) -> bool:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error(f"Ошибка запроса: {response.status}. Ответ: {error_text}")
-                    return False
+                    return False, "employee"
 
                 data = await response.json()
                 """
@@ -50,15 +50,16 @@ async def check_id_messenger(id_messenger: str) -> bool:
                 # Ищем пользователя с совпадающим id_messenger
                 for row in data.get("rows", []):
                     if str(row.get("ID_messenger")) == str(id_messenger):
-                        logger.info(f"Найден пользователь с ID_messenger: {id_messenger}")
-                        return True
+                        role = row.get('Role', 'employee')  # Получаем роль
+                        logger.info(f"Найден пользователь с ID_messenger: {id_messenger}, роль: {role}")
+                        return True, role  # ← ВАЖНО: возвращаем True, role когда пользователь найден
 
                 logger.info(f"Пользователь с ID_messenger {id_messenger} не найден")
-                return False
+                return False, "employee"  # ← Возвращаем False только если пользователь не найден
 
     except Exception as e:
         logger.error(f"Ошибка при проверке пользователя: {str(e)}", exc_info=True)
-        return False
+        return False, "employee"
 
 
 async def register_id_messenger(phone: str, id_messenger: str) -> bool:
