@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # Таймер, чтобы удалить на клиенте из истории имена сотрудников
 AUTODELETE_TIMER = 3600
 
+
 # Хендлер для кнопки со справочником сотрудников
 @router.callback_query(lambda c: c.data.startswith('ats:'))
 async def process_ats_callback(callback_query: types.CallbackQuery):
@@ -39,11 +40,56 @@ async def process_ats_callback(callback_query: types.CallbackQuery):
         except:
             pass
 
-        # Спрашиваем пользователя, как он хочет искать
-        await callback_query.message.answer(
-            "Как вы хотите найти сотрудника?",
-            reply_markup=SEARCH_TYPE_KEYBOARD
-        )
+        # Получаем главное меню для текущей роли пользователя
+        main_menu_id = await state_manager.get_main_menu_id(user_id)
+
+        # Получаем данные главного меню
+        from app.seatable_api.api_base import fetch_table
+        main_menu_data = await fetch_table(main_menu_id)
+
+        # Ищем строку со справочником
+        ats_button_content = None
+        ats_button_image_url = None
+
+        for row in main_menu_data:
+            name = row.get('Name')
+            submenu_link = row.get('Submenu_link')
+
+            if name and submenu_link:
+                # Проверяем, ведет ли ссылка на справочник сотрудников
+                if Config.SEATABLE_EMPLOYEE_BOOK_ID in submenu_link:
+                    # Нашли нужную кнопку справочника
+                    content_value = row.get('Content')
+                    if content_value:
+                        # Парсим контент для извлечения изображения
+                        from telegram.content import prepare_telegram_message
+                        prepared_content = prepare_telegram_message(content_value)
+                        ats_button_image_url = prepared_content.get('image_url')
+                        ats_button_content = prepared_content.get('text', '')
+                    break
+
+        # Отправляем сообщение с иллюстрацией (если есть)
+        if ats_button_image_url:
+            # Если есть изображение - отправляем фото с описанием
+            await callback_query.message.answer_photo(
+                photo=ats_button_image_url,
+                caption="Как вы хотите найти сотрудника?",
+                reply_markup=SEARCH_TYPE_KEYBOARD,
+                parse_mode='HTML'
+            )
+        elif ats_button_content:
+            # Если есть только текст (без изображения)
+            await callback_query.message.answer(
+                text=f"{ats_button_content}\n\nКак вы хотите найти сотрудника?",
+                reply_markup=SEARCH_TYPE_KEYBOARD,
+                parse_mode='HTML'
+            )
+        else:
+            # Если нет ни изображения, ни текста - отправляем просто текст
+            await callback_query.message.answer(
+                "Как вы хотите найти сотрудника?",
+                reply_markup=SEARCH_TYPE_KEYBOARD
+            )
 
         # Устанавливаем состояние ожидания выбора типа поиска
         await state_manager.update_data(user_id, current_state=AppStates.WAITING_FOR_SEARCH_TYPE)

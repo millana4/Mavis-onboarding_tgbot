@@ -34,8 +34,8 @@ async def is_user_admin(user_id: int) -> bool:
 
         # 4. Проверяем всех админов
         for admin in admins:
-            # Проверяем доступ админа
-            if not admin.get('Access'):
+            # Проверяем доступ админа (права на просмотр всего контента и на отправку уведомлений)
+            if not admin.get('Content+broadcast_admin'):
                 continue
 
             admin_messenger_ids = admin.get('ID_messenger', [])
