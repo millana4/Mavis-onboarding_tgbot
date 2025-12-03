@@ -135,83 +135,164 @@ async def handle_broadcast_preview(callback_query: CallbackQuery, bot: Bot):
         logger.error(f"Broadcast preview error: {str(e)}")
         await callback_query.answer("Ошибка при загрузке уведомления", show_alert=True)
 
-    @router.callback_query(F.data == "broadcast_ok")
-    async def handle_broadcast_ok(callback_query: CallbackQuery):
-        """Обрабатывает подтверждение уведомления и предлагает даты отправки"""
-        try:
-            user_id = callback_query.from_user.id
 
-            # Убираем клавиатуру
-            await callback_query.message.edit_reply_markup(reply_markup=None)
+@router.callback_query(F.data == "broadcast_ok")
+async def handle_broadcast_ok(callback_query: CallbackQuery):
+    """Обрабатывает подтверждение уведомления и предлагает даты отправки"""
+    try:
+        user_id = callback_query.from_user.id
 
-            # Создаем клавиатуру с датами
-            dates_keyboard = await create_dates_keyboard()
+        # Убираем клавиатуру
+        await callback_query.message.edit_reply_markup(reply_markup=None)
+
+        # Создаем клавиатуру с датами
+        dates_keyboard = await create_dates_keyboard()
+
+        await callback_query.message.answer(
+            "Когда отправить уведомление?",
+            reply_markup=dates_keyboard
+        )
+
+        await callback_query.answer()
+
+    except Exception as e:
+        logger.error(f"Broadcast OK error: {str(e)}")
+        await callback_query.answer("Ошибка", show_alert=True)
+
+
+async def create_dates_keyboard() -> InlineKeyboardMarkup:
+    """Создает клавиатуру с датами отправки на 7 дней"""
+    today = datetime.now()
+    dates_keyboard = []
+
+    # Сейчас
+    dates_keyboard.append([InlineKeyboardButton(
+        text="Сейчас",
+        callback_data="broadcast_schedule:now"
+    )])
+
+    # Сегодня и завтра
+    dates_keyboard.append([InlineKeyboardButton(
+        text=f"Сегодня ({today.strftime('%d.%m')})",
+        callback_data=f"broadcast_schedule:today"
+    )])
+
+    dates_keyboard.append([InlineKeyboardButton(
+        text=f"Завтра ({(today + timedelta(days=1)).strftime('%d.%m')})",
+        callback_data=f"broadcast_schedule:tomorrow"
+    )])
+
+    # Следующие 5 дней (всего 7 дней включая сегодня и завтра)
+    for i in range(2, 7):
+        date = today + timedelta(days=i)
+        dates_keyboard.append([InlineKeyboardButton(
+            text=date.strftime('%d.%m'),
+            callback_data=f"broadcast_schedule:{date.strftime('%Y-%m-%d')}"
+        )])
+
+    # Кнопка отмены
+    dates_keyboard.append([InlineKeyboardButton(
+        text="❌ Отмена",
+        callback_data="broadcast_cancel"
+    )])
+
+    return InlineKeyboardMarkup(inline_keyboard=dates_keyboard)
+
+
+@router.callback_query(F.data.startswith("broadcast_schedule:"))
+async def handle_schedule_choice(callback_query: CallbackQuery):
+    """Обрабатывает выбор даты отправки"""
+    try:
+        user_id = callback_query.from_user.id
+        schedule_type = callback_query.data.replace("broadcast_schedule:", "")
+
+        # Убираем клавиатуру
+        await callback_query.message.edit_reply_markup(reply_markup=None)
+
+        if schedule_type == "now":
+            # Для отправки сейчас - подтверждение
+            confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="✅ Отправить всем",
+                        callback_data="broadcast_confirm_immediate"
+                    ),
+                    InlineKeyboardButton(
+                        text="❌ Отмена",
+                        callback_data="broadcast_cancel"
+                    )
+                ]
+            ])
 
             await callback_query.message.answer(
-                "Когда отправить уведомление?",
-                reply_markup=dates_keyboard
+                "Вы хотите сейчас отправить уведомление?",
+                reply_markup=confirmation_keyboard
             )
 
-            await callback_query.answer()
+        else:
+            # Для отложенной отправки - запрос времени
+            await state_manager.update_data(
+                user_id,
+                selected_schedule_date=schedule_type
+            )
 
-        except Exception as e:
-            logger.error(f"Broadcast OK error: {str(e)}")
-            await callback_query.answer("Ошибка", show_alert=True)
+            cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="❌ Отмена", callback_data="broadcast_cancel")
+            ]])
 
-    async def create_dates_keyboard() -> InlineKeyboardMarkup:
-        """Создает клавиатуру с датами отправки на 7 дней"""
-        today = datetime.now()
-        dates_keyboard = []
+            await callback_query.message.answer(
+                "Укажите, пожалуйста, время отправки через двоеточие, например: 14:00\n"
+                "Время должно быть московское.",
+                reply_markup=cancel_keyboard
+            )
 
-        # Сейчас
-        dates_keyboard.append([InlineKeyboardButton(
-            text="Сейчас",
-            callback_data="broadcast_schedule:now"
-        )])
+        await callback_query.answer()
 
-        # Сегодня и завтра
-        dates_keyboard.append([InlineKeyboardButton(
-            text=f"Сегодня ({today.strftime('%d.%m')})",
-            callback_data=f"broadcast_schedule:today"
-        )])
+    except Exception as e:
+        logger.error(f"Schedule choice error: {str(e)}")
+        await callback_query.answer("Ошибка", show_alert=True)
 
-        dates_keyboard.append([InlineKeyboardButton(
-            text=f"Завтра ({(today + timedelta(days=1)).strftime('%d.%m')})",
-            callback_data=f"broadcast_schedule:tomorrow"
-        )])
 
-        # Следующие 5 дней (всего 7 дней включая сегодня и завтра)
-        for i in range(2, 7):
-            date = today + timedelta(days=i)
-            dates_keyboard.append([InlineKeyboardButton(
-                text=date.strftime('%d.%m'),
-                callback_data=f"broadcast_schedule:{date.strftime('%Y-%m-%d')}"
-            )])
+@router.message(F.text.regexp(r'^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'))
+async def handle_time_input(message: Message):
+    """Обрабатывает ввод времени"""
+    try:
+        user_id = message.from_user.id
+        time_str = message.text.strip()
 
-        # Кнопка отмены
-        dates_keyboard.append([InlineKeyboardButton(
-            text="❌ Отмена",
-            callback_data="broadcast_cancel"
-        )])
+        user_data = await state_manager.get_data(user_id)
+        schedule_date = user_data.get('selected_schedule_date')
 
-        return InlineKeyboardMarkup(inline_keyboard=dates_keyboard)
+        if not schedule_date:
+            return
 
-    @router.callback_query(F.data.startswith("broadcast_schedule:"))
-    async def handle_schedule_choice(callback_query: CallbackQuery):
-        """Обрабатывает выбор даты отправки"""
-        try:
-            user_id = callback_query.from_user.id
-            schedule_type = callback_query.data.replace("broadcast_schedule:", "")
+        # Форматируем дату для отображения и рассчитываем datetime
+        now = datetime.now()
 
-            # Убираем клавиатуру
-            await callback_query.message.edit_reply_markup(reply_markup=None)
+        if schedule_date == "today":
+            display_date = f"сегодня ({now.strftime('%d.%m')})"
+            schedule_datetime = now.replace(
+                hour=int(time_str.split(':')[0]),
+                minute=int(time_str.split(':')[1]),
+                second=0,
+                microsecond=0
+            )
 
-            if schedule_type == "now":
-                # Для отправки сейчас - подтверждение
+            # Если время уже прошло сегодня, предлагаем отправить сейчас
+            if schedule_datetime <= now:
+                # Сохраняем данные для немедленной отправки
+                await state_manager.update_data(
+                    user_id,
+                    selected_schedule_datetime=now.isoformat(),  # Отправляем сейчас
+                    display_schedule="сейчас",
+                    is_immediate_send=True  # Флаг для немедленной отправки
+                )
+
+                # Предлагаем отправить сейчас
                 confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="✅ Отправить всем",
+                            text="✅ Да, отправить",
                             callback_data="broadcast_confirm_immediate"
                         ),
                         InlineKeyboardButton(
@@ -221,230 +302,152 @@ async def handle_broadcast_preview(callback_query: CallbackQuery, bot: Bot):
                     ]
                 ])
 
-                await callback_query.message.answer(
-                    "Вы хотите сейчас отправить уведомление?",
+                await message.answer(
+                    f"Указанное время уже прошло.\n"
+                    f"Отправить рассылку сейчас?",
                     reply_markup=confirmation_keyboard
                 )
-
-            else:
-                # Для отложенной отправки - запрос времени
-                await state_manager.update_data(
-                    user_id,
-                    selected_schedule_date=schedule_type
-                )
-
-                cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(text="❌ Отмена", callback_data="broadcast_cancel")
-                ]])
-
-                await callback_query.message.answer(
-                    "Укажите, пожалуйста, время отправки через двоеточие, например: 14:00\n"
-                    "Время должно быть московское.",
-                    reply_markup=cancel_keyboard
-                )
-
-            await callback_query.answer()
-
-        except Exception as e:
-            logger.error(f"Schedule choice error: {str(e)}")
-            await callback_query.answer("Ошибка", show_alert=True)
-
-
-    @router.message(F.text.regexp(r'^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'))
-    async def handle_time_input(message: Message):
-        """Обрабатывает ввод времени"""
-        try:
-            user_id = message.from_user.id
-            time_str = message.text.strip()
-
-            user_data = await state_manager.get_data(user_id)
-            schedule_date = user_data.get('selected_schedule_date')
-
-            if not schedule_date:
                 return
 
-            # Форматируем дату для отображения и рассчитываем datetime
-            now = datetime.now()
-
-            if schedule_date == "today":
-                display_date = f"сегодня ({now.strftime('%d.%m')})"
-                schedule_datetime = now.replace(
-                    hour=int(time_str.split(':')[0]),
-                    minute=int(time_str.split(':')[1]),
-                    second=0,
-                    microsecond=0
-                )
-
-                # Если время уже прошло сегодня, предлагаем отправить сейчас
-                if schedule_datetime <= now:
-                    # Сохраняем данные для немедленной отправки
-                    await state_manager.update_data(
-                        user_id,
-                        selected_schedule_datetime=now.isoformat(),  # Отправляем сейчас
-                        display_schedule="сейчас",
-                        is_immediate_send=True  # Флаг для немедленной отправки
-                    )
-
-                    # Предлагаем отправить сейчас
-                    confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text="✅ Да, отправить",
-                                callback_data="broadcast_confirm_immediate"
-                            ),
-                            InlineKeyboardButton(
-                                text="❌ Отмена",
-                                callback_data="broadcast_cancel"
-                            )
-                        ]
-                    ])
-
-                    await message.answer(
-                        f"Указанное время уже прошло.\n"
-                        f"Отправить рассылку сейчас?",
-                        reply_markup=confirmation_keyboard
-                    )
-                    return
-
-            elif schedule_date == "tomorrow":
-                tomorrow = now + timedelta(days=1)
-                display_date = f"завтра ({tomorrow.strftime('%d.%m')})"
-                schedule_datetime = tomorrow.replace(
-                    hour=int(time_str.split(':')[0]),
-                    minute=int(time_str.split(':')[1]),
-                    second=0,
-                    microsecond=0
-                )
-
-            else:
-                # Для конкретной даты в будущем
-                schedule_date_obj = datetime.strptime(schedule_date, '%Y-%m-%d')
-                display_date = schedule_date_obj.strftime('%d.%m.%Y')
-                schedule_datetime = schedule_date_obj.replace(
-                    hour=int(time_str.split(':')[0]),
-                    minute=int(time_str.split(':')[1]),
-                    second=0,
-                    microsecond=0
-                )
-
-            # Сохраняем полную дату и время для отложенной отправки
-            await state_manager.update_data(
-                user_id,
-                selected_schedule_datetime=schedule_datetime.isoformat(),
-                display_schedule=f"{display_date} в {time_str}",
-                is_immediate_send=False  # Флаг для отложенной отправки
+        elif schedule_date == "tomorrow":
+            tomorrow = now + timedelta(days=1)
+            display_date = f"завтра ({tomorrow.strftime('%d.%m')})"
+            schedule_datetime = tomorrow.replace(
+                hour=int(time_str.split(':')[0]),
+                minute=int(time_str.split(':')[1]),
+                second=0,
+                microsecond=0
             )
 
-            # Подтверждение отложенной отправки
-            confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="✅ Да, запланировать",
-                        callback_data="broadcast_confirm_scheduled"
-                    ),
-                    InlineKeyboardButton(
-                        text="❌ Отмена",
-                        callback_data="broadcast_cancel"
-                    )
-                ]
-            ])
-
-            await message.answer(
-                f"Вы хотите запланировать отправку уведомления на {display_date} в {time_str}?",
-                reply_markup=confirmation_keyboard
+        else:
+            # Для конкретной даты в будущем
+            schedule_date_obj = datetime.strptime(schedule_date, '%Y-%m-%d')
+            display_date = schedule_date_obj.strftime('%d.%m.%Y')
+            schedule_datetime = schedule_date_obj.replace(
+                hour=int(time_str.split(':')[0]),
+                minute=int(time_str.split(':')[1]),
+                second=0,
+                microsecond=0
             )
 
-        except Exception as e:
-            logger.error(f"Time input error: {str(e)}")
-            await message.answer("Ошибка при обработке времени")
+        # Сохраняем полную дату и время для отложенной отправки
+        await state_manager.update_data(
+            user_id,
+            selected_schedule_datetime=schedule_datetime.isoformat(),
+            display_schedule=f"{display_date} в {time_str}",
+            is_immediate_send=False  # Флаг для отложенной отправки
+        )
+
+        # Подтверждение отложенной отправки
+        confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да, запланировать",
+                    callback_data="broadcast_confirm_scheduled"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data="broadcast_cancel"
+                )
+            ]
+        ])
+
+        await message.answer(
+            f"Вы хотите запланировать отправку уведомления на {display_date} в {time_str}?",
+            reply_markup=confirmation_keyboard
+        )
+
+    except Exception as e:
+        logger.error(f"Time input error: {str(e)}")
+        await message.answer("Ошибка при обработке времени")
 
 
-    @router.callback_query(F.data == "broadcast_confirm_immediate")
-    async def handle_immediate_broadcast(callback_query: CallbackQuery, bot: Bot):
-        """Обрабатывает немедленную рассылку"""
-        try:
-            user_id = callback_query.from_user.id
+@router.callback_query(F.data == "broadcast_confirm_immediate")
+async def handle_immediate_broadcast(callback_query: CallbackQuery, bot: Bot):
+    """Обрабатывает немедленную рассылку"""
+    try:
+        user_id = callback_query.from_user.id
 
-            # Убираем клавиатуру
-            await callback_query.message.edit_reply_markup(reply_markup=None)
+        # Убираем клавиатуру
+        await callback_query.message.edit_reply_markup(reply_markup=None)
 
-            user_data = await state_manager.get_data(user_id)
-            notification = user_data.get('selected_notification')
+        user_data = await state_manager.get_data(user_id)
+        notification = user_data.get('selected_notification')
 
-            if not notification:
-                await callback_query.answer("Уведомление не найдено", show_alert=True)
-                return
+        if not notification:
+            await callback_query.answer("Уведомление не найдено", show_alert=True)
+            return
 
-            await callback_query.message.answer(
-                f"Запускаю рассылку: {notification.get('Name', 'Без названия')}"
-            )
+        await callback_query.message.answer(
+            f"Запускаю рассылку: {notification.get('Name', 'Без названия')}"
+        )
 
-            success = await send_broadcast_to_all_users(notification, bot)
+        success = await send_broadcast_to_all_users(notification, bot)
 
-            if success:
-                await callback_query.message.answer("Рассылка завершена!")
-            else:
-                await callback_query.message.answer("Ошибка при рассылке")
+        if success:
+            await callback_query.message.answer("Рассылка завершена!")
+        else:
+            await callback_query.message.answer("Ошибка при рассылке")
 
-            # Кнопка возврата в меню
+        # Кнопка возврата в меню
+        menu_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="⬅️ В главное меню", callback_data="broadcast_back_to_menu")
+        ]])
+
+        await callback_query.message.answer("Что делаем дальше?", reply_markup=menu_keyboard)
+        await callback_query.answer()
+
+    except Exception as e:
+        logger.error(f"Immediate broadcast error: {str(e)}")
+        await callback_query.answer("Ошибка при запуске рассылки", show_alert=True)
+
+
+@router.callback_query(F.data == "broadcast_confirm_scheduled")
+async def handle_scheduled_broadcast(callback_query: CallbackQuery, bot: Bot):
+    """Обрабатывает подтверждение отложенной рассылки"""
+    try:
+        user_id = callback_query.from_user.id
+
+        # Убираем клавиатуру
+        await callback_query.message.edit_reply_markup(reply_markup=None)
+
+        user_data = await state_manager.get_data(user_id)
+        display_schedule = user_data.get('display_schedule')
+        schedule_datetime_str = user_data.get('selected_schedule_datetime')
+        notification = user_data.get('selected_notification')
+
+        if not all([display_schedule, schedule_datetime_str, notification]):
+            await callback_query.answer("Данные рассылки не найдены", show_alert=True)
+            return
+
+        # Парсим дату и время
+        schedule_datetime = datetime.fromisoformat(schedule_datetime_str)
+
+        # Планируем рассылку
+        broadcast_id = await schedule_broadcast(bot, notification, schedule_datetime, user_id)
+
+        if broadcast_id:
             menu_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="⬅️ В главное меню", callback_data="broadcast_back_to_menu")
             ]])
 
-            await callback_query.message.answer("Что делаем дальше?", reply_markup=menu_keyboard)
-            await callback_query.answer()
-
-        except Exception as e:
-            logger.error(f"Immediate broadcast error: {str(e)}")
-            await callback_query.answer("Ошибка при запуске рассылки", show_alert=True)
-
-
-    @router.callback_query(F.data == "broadcast_confirm_scheduled")
-    async def handle_scheduled_broadcast(callback_query: CallbackQuery, bot: Bot):
-        """Обрабатывает подтверждение отложенной рассылки"""
-        try:
-            user_id = callback_query.from_user.id
-
-            # Убираем клавиатуру
-            await callback_query.message.edit_reply_markup(reply_markup=None)
-
-            user_data = await state_manager.get_data(user_id)
-            display_schedule = user_data.get('display_schedule')
-            schedule_datetime_str = user_data.get('selected_schedule_datetime')
-            notification = user_data.get('selected_notification')
-
-            if not all([display_schedule, schedule_datetime_str, notification]):
-                await callback_query.answer("Данные рассылки не найдены", show_alert=True)
-                return
-
-            # Парсим дату и время
-            schedule_datetime = datetime.fromisoformat(schedule_datetime_str)
-
-            # Планируем рассылку
-            broadcast_id = await schedule_broadcast(bot, notification, schedule_datetime, user_id)
-
-            if broadcast_id:
-                menu_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            await callback_query.message.answer(
+                f"Ваше уведомление будет отправлено {display_schedule}.",
+                reply_markup=menu_keyboard
+            )
+        else:
+            await callback_query.message.answer(
+                "   Не удалось запланировать рассылку. Попробуйте еще раз.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="⬅️ В главное меню", callback_data="broadcast_back_to_menu")
                 ]])
+            )
 
-                await callback_query.message.answer(
-                    f"Ваше уведомление будет отправлено {display_schedule}.",
-                    reply_markup=menu_keyboard
-                )
-            else:
-                await callback_query.message.answer(
-                    "Не удалось запланировать рассылку. Попробуйте еще раз.",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                        InlineKeyboardButton(text="⬅️ В главное меню", callback_data="broadcast_back_to_menu")
-                    ]])
-                )
+        await callback_query.answer()
 
-            await callback_query.answer()
-
-        except Exception as e:
-            logger.error(f"Scheduled broadcast error: {str(e)}")
-            await callback_query.answer("Ошибка при планировании рассылки", show_alert=True)
+    except Exception as e:
+        logger.error(f"Scheduled broadcast error: {str(e)}")
+        await callback_query.answer("Ошибка при планировании рассылки", show_alert=True)
 
 
 @router.callback_query(F.data == "broadcast_cancel")

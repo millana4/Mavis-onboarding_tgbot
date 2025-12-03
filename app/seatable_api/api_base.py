@@ -21,6 +21,12 @@ _token_user_cache: Dict[str, Optional[Dict]] = {
     "timestamp": 0
 }
 
+# Глобальный кэш токена базы пульс-опросов
+_token_pulse_cache: Dict[str, Optional[Dict]] = {
+    "token_data": None,
+    "timestamp": 0
+}
+
 _TOKEN_TTL = 244800  # время жизни токена в секундах — 68 часов
 
 
@@ -50,6 +56,9 @@ async def get_base_token(app='HR') -> Optional[Dict]:
     if app == 'USER':
         cached = _token_user_cache["token_data"]
         cached_time = _token_user_cache["timestamp"]
+    elif app == 'PULSE':
+        cached = _token_pulse_cache["token_data"]
+        cached_time = _token_pulse_cache["timestamp"]
     else:
         cached = _token_app_cache["token_data"]
         cached_time = _token_app_cache["timestamp"]
@@ -57,14 +66,19 @@ async def get_base_token(app='HR') -> Optional[Dict]:
     if cached and (now - cached_time) < _TOKEN_TTL:
         return cached
 
-    # URL одинаковый для обоих приложений
+    # URL одинаковый для всех приложений
     url = f"{Config.SEATABLE_SERVER}/api/v2.1/dtable/app-access-token/"
 
-    # В заголовок передаем ключ API для основного приложения HR или для базы пользователей USER
+    # В заголовок передаем ключ API для основного приложения HR или для базы пользователей USER, или базы пульс-опросов
     if app == 'USER':
         headers = {
             "accept": "application/json",
             "authorization": f"Bearer {Config.SEATABLE_API_USER_TOKEN}"
+        }
+    elif app == 'PULSE':
+        headers = {
+            "accept": "application/json",
+            "authorization": f"Bearer {Config.SEATABLE_API_PULSE_TOKEN}"
         }
     else:
         headers = {
@@ -106,6 +120,8 @@ async def fetch_table(table_id: str = '0000', app: str = "HR") -> List[Dict]:
     # Запрашиваем токен для нужного приложения — Мавис-HR или база пользователей
     if app == 'USER':
         token_data = await get_base_token('USER')
+    elif app == 'PULSE':
+        token_data = await get_base_token('PULSE')
     else:
         token_data = await get_base_token()
 
@@ -165,22 +181,22 @@ async def get_metadata(app: str = "HR") -> Optional[Dict[str, str]]:
 
 
 # Отладочный скрипт для вывода ответов json по API SeaTable
-if __name__ == "__main__":
-    async def main():
-        print("БАЗОВЫЙ ТОКЕН")
-        token_data = await get_base_token("USER")
-        pprint.pprint(token_data)
-
-        print("ТАБЛИЦА")
-        menu_rows = await fetch_table('0000')
-        pprint.pprint(menu_rows)
-
-        print("ДРУГАЯ ТАБЛИЦА")
-        menu_rows = await fetch_table(table_id='93ZW', app='USER')
-        pprint.pprint(menu_rows)
-
-        print("МЕТАДАННЫЕ ТАБЛИЦ")
-        metadata = await get_metadata('ATS')
-        pprint.pprint(metadata)
-
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     async def main():
+#         print("БАЗОВЫЙ ТОКЕН")
+#         token_data = await get_base_token("USER")
+#         pprint.pprint(token_data)
+#
+#         print("ТАБЛИЦА")
+#         menu_rows = await fetch_table(table_id='6dCM', app='USER')
+#         pprint.pprint(menu_rows)
+#
+#         print("ДРУГАЯ ТАБЛИЦА")
+#         menu_rows = await fetch_table(table_id='93ZW', app='USER')
+#         pprint.pprint(menu_rows)
+#
+#         print("МЕТАДАННЫЕ ТАБЛИЦ")
+#         metadata = await get_metadata('ATS')
+#         pprint.pprint(metadata)
+#
+#     asyncio.run(main())
