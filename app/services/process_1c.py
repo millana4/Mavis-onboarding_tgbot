@@ -1,13 +1,16 @@
 import logging
-from datetime import datetime, date, timedelta
-import logging
 from datetime import datetime, date
 from typing import Dict, List, Optional, Tuple
 from dateutil.relativedelta import relativedelta
 
 from config import Config
-from app.seatable_api.api_base import fetch_table, get_base_token
-import aiohttp
+from app.seatable_api.api_base import fetch_table
+from app.seatable_api.api_sync_1c import (
+    create_user_in_table,
+    update_user_in_table,
+    mark_1c_user_as_processed
+)
+from app.services.pulse_tasks import create_pulse_all_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -129,147 +132,69 @@ async def user_exists_in_users_table(snils: str) -> Tuple[bool, Optional[str]]:
         return False, None
 
 
-async def create_user_in_users_table(user: User1C) -> bool:
+async def process_1c_user(user: User1C) -> bool:
     """
-    Создает пользователя в таблице пользователей
+    Обрабатывает одного пользователя из 1С
     """
     try:
-        # Получаем токен
-        token_data = await get_base_token(app='USER')
-        if not token_data:
+        # Проверяем, существует ли пользователь уже в таблице пользователей
+        exists, row_id = await user_exists_in_users_table(user.snils)
+
+        if exists:
+            # Подготавливаем данные для обновления
+            update_data = {}
+            if user.fio:          # ФИО - обновляем из 1С
+                update_data['FIO'] = user.fio
+
+            if user.employment_date:  # Роль - проверяем и обновляем на основе даты устройства
+                should_be_role = "newcomer" if user.is_newcomer else "employee"
+                update_data['Role'] = should_be_role
+
+            # Обновляем запись
+            success = await update_user_in_table(row_id, update_data)
+        else:
+            # Создаем нового пользователя
+            user_data = user.to_users_table_format()
+            success = await create_user_in_table(user_data)
+
+        # Если операция успешна - создаем пульс-опросы и помечаем как обработанного
+        if success:
+            # Создаем пульс-опросы если нужно
+            if user.is_less_than_year:
+                await _create_pulse_for_user(user)
+
+            # Помечаем как обработанного в 1С
+            if user.row_id:
+                await mark_1c_user_as_processed(user.row_id)
+
+            return True
+        else:
             return False
 
-        # Подготавливаем данные
-        user_data = user.to_users_table_format()
-
-        # URL для создания записи
-        url = f"{token_data['dtable_server'].rstrip('/')}/api/v1/dtables/{token_data['dtable_uuid']}/rows/"
-
-        headers = {
-            "Authorization": f"Bearer {token_data['access_token']}",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "table_id": Config.SEATABLE_USERS_TABLE_ID,
-            "row": user_data
-        }
-
-        # Создаем запись
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers) as response:
-                if response.status in (200, 201):
-                    # Если сотрудник работает меньше года - создаем пульс-опросы
-                    if user.is_less_than_year:
-                        await create_pulse(user)
-
-                    return True
-                else:
-                    error_text = await response.text()
-                    logger.error(f"Ошибка создания пользователя {user.snils}: {response.status} - {error_text}")
-                    return False
-
     except Exception as e:
-        logger.error(f"Ошибка при создании пользователя {user.snils}: {str(e)}")
+        logger.error(f"Ошибка обработки пользователя {user.fio}: {str(e)}")
         return False
 
 
-async def update_user_in_users_table(user: User1C, row_id: str) -> bool:
+async def _create_pulse_for_user(user: User1C) -> bool:
     """
-    Обновляет существующего пользователя в таблице пользователей
+    Создает пульс-опросы для пользователя
     """
+    # Конвертируем User1C в dict для передачи
+    user_dict = {
+        'FIO': user.fio,
+        'Name': user.snils,
+        'Phone_private': user.phone,
+        'Email': user.email,
+        'Department': user.department,
+        'Position': user.position,
+        'Main_company': user.main_company,
+        'Companies': user.companies,
+        'Data_employment': user.employment_date.isoformat() if user.employment_date else None
+    }
+
     try:
-        # Получаем токен
-        token_data = await get_base_token(app='USER')
-        if not token_data:
-            return False
-
-        # Подготавливаем данные для обновления
-        user_data = user.to_users_table_format()
-
-        # Удаляем ID_messenger из обновления, если он пустой
-        if not user_data.get('ID_messenger'):
-            user_data.pop('ID_messenger', None)
-
-        # URL для обновления записи
-        url = f"{token_data['dtable_server'].rstrip('/')}/api/v1/dtables/{token_data['dtable_uuid']}/rows/"
-
-        headers = {
-            "Authorization": f"Bearer {token_data['access_token']}",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "table_id": Config.SEATABLE_USERS_TABLE_ID,
-            "row_id": row_id,
-            "row": user_data
-        }
-
-        # Обновляем запись
-        async with aiohttp.ClientSession() as session:
-            async with session.put(url, json=payload, headers=headers) as response:
-                if response.status == 200:
-                    # Если сотрудник работает меньше года - создаем пульс-опросы
-                    if user.is_less_than_year:
-                        await create_pulse(user)
-
-                    return True
-                else:
-                    error_text = await response.text()
-                    logger.error(f"Ошибка обновления пользователя {user.snils}: {response.status} - {error_text}")
-                    return False
-
+        return await create_pulse_all_tasks(user_dict)
     except Exception as e:
-        logger.error(f"Ошибка при обновлении пользователя {user.snils}: {str(e)}")
+        logger.error(f"Ошибка создания пульс-опросов для {user.fio}: {e}")
         return False
-
-
-async def mark_user_as_processed(user: User1C) -> bool:
-    """
-    Помечает пользователя как обработанного в таблице 1С
-    """
-    try:
-        if not user.row_id:
-            return False
-
-        # Получаем токен
-        token_data = await get_base_token(app='USER')
-        if not token_data:
-            return False
-
-        # URL для обновления записи
-        url = f"{token_data['dtable_server'].rstrip('/')}/api/v1/dtables/{token_data['dtable_uuid']}/rows/"
-
-        headers = {
-            "Authorization": f"Bearer {token_data['access_token']}",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "table_id": Config.SEATABLE_1C_TABLE_ID,
-            "row_id": user.row_id,
-            "row": {
-                "Processed": True
-            }
-        }
-
-        # Обновляем запись
-        async with aiohttp.ClientSession() as session:
-            async with session.put(url, json=payload, headers=headers) as response:
-                if response.status == 200:
-                    return True
-                else:
-                    error_text = await response.text()
-                    logger.error(f"Ошибка отметки пользователя {user.snils}: {response.status} - {error_text}")
-                    return False
-
-    except Exception as e:
-        logger.error(f"Ошибка при отметке пользователя {user.snils}: {str(e)}")
-        return False
-
-
-async def create_pulse(user: User1C):
-    pass

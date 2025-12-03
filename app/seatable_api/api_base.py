@@ -157,6 +157,8 @@ async def get_metadata(app: str = "HR") -> Optional[Dict[str, str]]:
     # Запрашиваем токен для нужного приложения — Мавис-HR или телефонный справочник
     if app == 'USER':
         token_data = await get_base_token('USER')
+    elif app == 'PULSE':
+        token_data = await get_base_token('PULSE')
     else:
         token_data = await get_base_token()
 
@@ -184,19 +186,19 @@ async def get_metadata(app: str = "HR") -> Optional[Dict[str, str]]:
 # if __name__ == "__main__":
 #     async def main():
 #         print("БАЗОВЫЙ ТОКЕН")
-#         token_data = await get_base_token("USER")
+#         token_data = await get_base_token("PULSE")
 #         pprint.pprint(token_data)
-#
-#         print("ТАБЛИЦА")
-#         menu_rows = await fetch_table(table_id='6dCM', app='USER')
-#         pprint.pprint(menu_rows)
-#
-#         print("ДРУГАЯ ТАБЛИЦА")
-#         menu_rows = await fetch_table(table_id='93ZW', app='USER')
-#         pprint.pprint(menu_rows)
-#
-#         print("МЕТАДАННЫЕ ТАБЛИЦ")
-#         metadata = await get_metadata('ATS')
-#         pprint.pprint(metadata)
-#
-#     asyncio.run(main())
+
+        # print("ТАБЛИЦА")
+        # menu_rows = await fetch_table(table_id='6dCM', app='USER')
+        # pprint.pprint(menu_rows)
+        #
+        # print("ДРУГАЯ ТАБЛИЦА")
+        # menu_rows = await fetch_table(table_id='0000', app='PULSE')
+        # pprint.pprint(menu_rows)
+        #
+        # print("МЕТАДАННЫЕ ТАБЛИЦ")
+        # metadata = await get_metadata('PULSE')
+        # pprint.pprint(metadata)
+
+    # asyncio.run(main())
