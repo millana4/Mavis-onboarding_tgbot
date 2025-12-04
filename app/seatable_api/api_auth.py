@@ -52,7 +52,7 @@ async def check_id_messenger(id_messenger: str) -> tuple[bool, str]:
                     if str(row.get("ID_messenger")) == str(id_messenger):
                         role = row.get('Role', 'employee')  # Получаем роль
                         logger.info(f"Найден пользователь с ID_messenger: {id_messenger}, роль: {role}")
-                        return True, role  # ← ВАЖНО: возвращаем True, role когда пользователь найден
+                        return True, role  # возвращаем True, role когда пользователь найден
 
                 logger.info(f"Пользователь с ID_messenger {id_messenger} не найден")
                 return False, "employee"  # ← Возвращаем False только если пользователь не найден
@@ -116,10 +116,7 @@ async def register_id_messenger(phone: str, id_messenger: str) -> bool:
                             break
 
                 if not matched_row:
-                    logger.error("Совпадений не найдено. Проверьте:")
-                    logger.error(
-                        f"- Номер {phone} в таблице: {[normalize_phone(str(r.get(phone_column, ''))) for r in rows if phone_column in r]}")
-                    logger.error(f"- Колонка телефон: {phone_column}")
+                    logger.error(f"Совпадений не найдено. Проверьте в авторизационной таблице {id_messenger}")
                     return False
 
                 row_id = matched_row.get("_id")

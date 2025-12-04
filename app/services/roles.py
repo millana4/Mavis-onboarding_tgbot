@@ -51,6 +51,7 @@ class RoleChecker:
         except Exception as e:
             logger.error(f"Ошибка при проверке ролей: {e}")
 
+
     async def _get_newcomer_users(self) -> List[Dict]:
         """
         Получает пользователей с ролью newcomer
@@ -76,6 +77,7 @@ class RoleChecker:
             logger.error(f"Ошибка получения пользователей: {e}")
             return []
 
+
     async def _get_1c_users(self) -> List[Dict]:
         """
         Получает данные пользователей из 1С
@@ -92,6 +94,7 @@ class RoleChecker:
             logger.error(f"Ошибка получения данных из 1С: {e}")
             return []
 
+
     def _parse_date(self, date_str: Optional[str]) -> Optional[date]:
         """Парсит дату из строки"""
         if not date_str:
@@ -100,6 +103,7 @@ class RoleChecker:
             return datetime.strptime(date_str, '%Y-%m-%d').date()
         except (ValueError, TypeError):
             return None
+
 
     def _is_still_newcomer(self, employment_date: Optional[date]) -> bool:
         """
@@ -110,6 +114,7 @@ class RoleChecker:
 
         three_months_ago = datetime.now().date() - relativedelta(months=3)
         return employment_date > three_months_ago
+
 
     async def _check_user_role(self, user: Dict, users_1c: List[Dict]) -> bool:
         """

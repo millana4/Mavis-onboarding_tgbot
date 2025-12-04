@@ -145,6 +145,35 @@ async def fetch_table(table_id: str = '0000', app: str = "HR") -> List[Dict]:
                 logger.debug(f"Успешный запрос: {url} {params}")
                 return data.get("rows", [])
 
+            # Если ошибка 404 - пробуем сбросить токен и запросить новый
+            if response.status == 404:
+                logger.info(f"Таблица {table_id} не найдена, сбрасываем токен")
+
+                # Сбрасываем кеш токена
+                if app == 'USER':
+                    _token_user_cache["token_data"] = None
+                    _token_user_cache["timestamp"] = 0
+                    token_data = await get_base_token('USER')
+                elif app == 'PULSE':
+                    _token_pulse_cache["token_data"] = None
+                    _token_pulse_cache["timestamp"] = 0
+                    token_data = await get_base_token('PULSE')
+                else:
+                    _token_app_cache["token_data"] = None
+                    _token_app_cache["timestamp"] = 0
+                    token_data = await get_base_token()
+
+                if token_data:
+                    # Пробуем запросить с новым токеном
+                    url = f"{token_data['dtable_server'].rstrip('/')}/api/v1/dtables/{token_data['dtable_uuid']}/rows/"
+                    headers["Authorization"] = f"Bearer {token_data['access_token']}"
+
+                    async with session.get(url, headers=headers, params=params) as retry_response:
+                        if retry_response.status == 200:
+                            data = await retry_response.json()
+                            logger.info(f"Успешный запрос после сброса токена")
+                            return data.get("rows", [])
+
             error_text = await response.text()
             logger.debug(f"Ошибка: {response.status} - {error_text}")
 
@@ -188,17 +217,17 @@ async def get_metadata(app: str = "HR") -> Optional[Dict[str, str]]:
 #         print("БАЗОВЫЙ ТОКЕН")
 #         token_data = await get_base_token("PULSE")
 #         pprint.pprint(token_data)
-
-        # print("ТАБЛИЦА")
-        # menu_rows = await fetch_table(table_id='6dCM', app='USER')
-        # pprint.pprint(menu_rows)
-        #
-        # print("ДРУГАЯ ТАБЛИЦА")
-        # menu_rows = await fetch_table(table_id='0000', app='PULSE')
-        # pprint.pprint(menu_rows)
-        #
-        # print("МЕТАДАННЫЕ ТАБЛИЦ")
-        # metadata = await get_metadata('PULSE')
-        # pprint.pprint(metadata)
-
-    # asyncio.run(main())
+#
+#         print("ТАБЛИЦА")
+#         menu_rows = await fetch_table(table_id='0000', app='PULSE')
+#         pprint.pprint(menu_rows)
+#
+#         print("ДРУГАЯ ТАБЛИЦА")
+#         menu_rows = await fetch_table(table_id='0000', app='PULSE')
+#         pprint.pprint(menu_rows)
+#
+#         print("МЕТАДАННЫЕ ТАБЛИЦ")
+#         metadata = await get_metadata('PULSE')
+#         pprint.pprint(metadata)
+#
+#     asyncio.run(main())

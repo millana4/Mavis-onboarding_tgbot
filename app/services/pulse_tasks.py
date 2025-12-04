@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class HolidayChecker:
     """Проверяет праздники и выходные в России"""
 
-    # Фиксированные праздники (день-месяц)
+    # Праздники (день-месяц)
     FIXED_HOLIDAYS = [
         (1, 1),  # 1 января
         (2, 1),  # 2 января
@@ -33,7 +33,7 @@ class HolidayChecker:
     @classmethod
     def is_holiday(cls, check_date: date) -> bool:
         """Проверяет, является ли дата праздником"""
-        # Проверяем фиксированные праздники
+        # Проверяем праздники
         for day, month in cls.FIXED_HOLIDAYS:
             if check_date.day == day and check_date.month == month:
                 return True

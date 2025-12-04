@@ -4,6 +4,7 @@ from aiogram import Router, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardRemove
 
+from app.services.cache import user_access_cache, user_role_cache
 from app.services.utils import normalize_phone
 from app.services.fsm import state_manager, AppStates
 from app.seatable_api.api_auth import register_id_messenger, check_id_messenger
@@ -70,6 +71,9 @@ async def handle_contact(message: types.Message):
         )
         # Получаем актуальную роль после регистрации
         has_access, current_role = await check_id_messenger(user_id)
+
+        user_access_cache[user_id] = True
+        user_role_cache[user_id] = current_role
 
         # После успешной регистрации запускаем навигацию с актуальной ролью
         await start_navigation(message=message, current_role=current_role)

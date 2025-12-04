@@ -4,6 +4,8 @@ from aiogram import Bot, Dispatcher
 
 from config import Config
 from app.services.sync_1c import start_sync_scheduler
+from app.services.pulse_sender import start_pulse_sender_scheduler
+
 
 from telegram import custom_logging
 from telegram.bot_menu import set_main_menu
@@ -17,12 +19,15 @@ async def main():
     logger = logging.getLogger(__name__)
     logger.info("Запуск бота...")
 
-    # Планировщик синхронизации бота с данными пользователей из 1С
-    scheduler_task = asyncio.create_task(start_sync_scheduler())
-
     # Инициализация бота и диспетчера
     bot = Bot(token=Config.BOT_TOKEN)
     dp = Dispatcher()
+
+    # Планировщик синхронизации бота с данными пользователей из 1С + рассылки пульс-опросов
+    scheduler_tasks = [
+        asyncio.create_task(start_sync_scheduler()),
+        asyncio.create_task(start_pulse_sender_scheduler(bot))
+    ]
 
     # Регистрация роутеров
     dp.include_router(handler_checkout_roles.router)
@@ -38,9 +43,10 @@ async def main():
     try:
         await dp.start_polling(bot)
     finally:
-        # Отменяем задачу планировщика
-        scheduler_task.cancel()
-        logger.info("Бот остановлен")
+        # Останавливаем планировщики
+        for task in scheduler_tasks:
+            task.cancel()
+        logger.info("Бот и планировщики остановлены")
 
 if __name__ == "__main__":
     asyncio.run(main())

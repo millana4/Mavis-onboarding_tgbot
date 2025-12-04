@@ -7,7 +7,7 @@ from app.services.roles import check_user_roles_daily
 
 logger = logging.getLogger(__name__)
 
-# Времена запуска
+# Время запуска
 sync_times = [time(12, 0), time(16, 0)]
 
 # Время проверки ролей
@@ -47,8 +47,8 @@ async def start_sync_scheduler():
     Запускает планировщик синхронизации и проверки ролей
     """
     logger.info("Планировщик синхронизации с 1С запущен")
-    logger.info(f"Синхронизация будет в: {', '.join([t.strftime('%H:%M') for t in sync_times])} МСК")
-    logger.info(f"Проверка ролей будет в: {roles_check_time.strftime('%H:%M')} МСК")
+    logger.info(f"Синхронизация с 1С будет в {', '.join([t.strftime('%H:%M') for t in sync_times])} МСК")
+    logger.info(f"Проверка ролей будет в {roles_check_time.strftime('%H:%M')} МСК")
 
     # Запускаем обе задачи параллельно
     await asyncio.gather(
@@ -116,11 +116,5 @@ async def _wait_until(target_time: time):
         next_run = next_run + timedelta(days=1)
 
     wait_seconds = (next_run - now_msk).total_seconds()
-
-    hours = wait_seconds // 3600
-    minutes = (wait_seconds % 3600) // 60
-
-    logger.info(f"Ждем до {target_time.strftime('%H:%M')} МСК")
-    logger.info(f"Осталось {int(hours)} часов {int(minutes)} минут")
 
     await asyncio.sleep(wait_seconds)
