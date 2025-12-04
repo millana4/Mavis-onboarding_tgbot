@@ -55,7 +55,7 @@ class PulseSender:
                     if success:
                         sent_tasks.append(task)
                         # Обновляем статус задачи на "send"
-                        await self._update_task_status(task.get('_id'), 'send')
+                        await self._update_task_status(task.get('_id'), 'sent')
                     else:
                         failed_tasks.append(task)
                         # Обновляем статус задачи на "declined"

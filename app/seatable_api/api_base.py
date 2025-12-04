@@ -212,22 +212,22 @@ async def get_metadata(app: str = "HR") -> Optional[Dict[str, str]]:
 
 
 # Отладочный скрипт для вывода ответов json по API SeaTable
-# if __name__ == "__main__":
-#     async def main():
-#         print("БАЗОВЫЙ ТОКЕН")
-#         token_data = await get_base_token("PULSE")
-#         pprint.pprint(token_data)
-#
-#         print("ТАБЛИЦА")
-#         menu_rows = await fetch_table(table_id='0000', app='PULSE')
-#         pprint.pprint(menu_rows)
-#
-#         print("ДРУГАЯ ТАБЛИЦА")
-#         menu_rows = await fetch_table(table_id='0000', app='PULSE')
-#         pprint.pprint(menu_rows)
-#
-#         print("МЕТАДАННЫЕ ТАБЛИЦ")
-#         metadata = await get_metadata('PULSE')
-#         pprint.pprint(metadata)
-#
-#     asyncio.run(main())
+if __name__ == "__main__":
+    async def main():
+        print("БАЗОВЫЙ ТОКЕН")
+        token_data = await get_base_token("USER")
+        pprint.pprint(token_data)
+
+        print("ТАБЛИЦА")
+        menu_rows = await fetch_table(table_id='93ZW', app='USER')
+        pprint.pprint(menu_rows)
+
+        print("ДРУГАЯ ТАБЛИЦА")
+        menu_rows = await fetch_table(table_id='0000', app='PULSE')
+        pprint.pprint(menu_rows)
+
+        print("МЕТАДАННЫЕ ТАБЛИЦ")
+        metadata = await get_metadata('PULSE')
+        pprint.pprint(metadata)
+
+    asyncio.run(main())

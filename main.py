@@ -9,8 +9,8 @@ from app.services.pulse_sender import start_pulse_sender_scheduler
 
 from telegram import custom_logging
 from telegram.bot_menu import set_main_menu
-from telegram.handlers import handler_ats, handler_form, handler_table, handler_base, handler_broadcast, handler_checkout_roles, \
-    handler_bc_schedule
+from telegram.handlers import handler_ats, handler_form, handler_table, handler_base, handler_broadcast, \
+    handler_checkout_roles, handler_bc_schedule, handler_exit_pulse
 
 
 async def main():
@@ -37,6 +37,7 @@ async def main():
     dp.include_router(handler_ats.router)
     dp.include_router(handler_form.router)
     dp.include_router(handler_table.router)
+    dp.include_router(handler_exit_pulse.router)
     dp.startup.register(set_main_menu)
 
     # Запуск бота

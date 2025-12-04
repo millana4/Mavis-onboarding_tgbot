@@ -20,6 +20,7 @@ async def set_main_menu(bot: Bot):
         BotCommand(command="/checkout_employee", description="Режим действующего сотрудника"),
         BotCommand(command="/broadcast", description="Рассылка уведомлений"),
         BotCommand(command="/scheduled_broadcasts", description="Посмотреть отложенные рассылки"),
+        BotCommand(command="/send_exit_pulse", description="Назначить пульс-опрос при увольнении"),
     ]
 
     # Команды для обычных пользователей
